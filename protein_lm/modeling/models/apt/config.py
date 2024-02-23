@@ -1,5 +1,7 @@
 from transformers import GPT2Config
 from typing import Literal
+from protein_lm.tokenizer.tokenizer import AptTokenizer
+
 
 class APTConfig(GPT2Config):
     """
@@ -20,4 +22,5 @@ class APTConfig(GPT2Config):
         self.tokenizer = tokenizer
         self.max_sequence_length = max_sequence_length
         self.attn_type = attn_type
+        self.vocab_size = getattr(AptTokenizer(),'vocab_size')
 

@@ -25,12 +25,10 @@ def train(
         print(config_dict)
 
     tokenizer = get_tokenizer(config_dict=config_dict["tokenizer"])
-
     dataset = get_dataset(
         config_dict=config_dict["dataset"],
         tokenizer=tokenizer,
     )
-    print('dataset',dataset)
 
     model = get_model(
         config_dict=config_dict["model"],
@@ -52,12 +50,13 @@ def train(
 
     if "wandb" in training_args.report_to and "wandb" in config_dict:
         wandb_dict = {
-            "wandb_host": args["wandb_host"],
-            "wandb_project": args["wandb_project"],
-            "wandb_name": config_dict["wandb"]["name"],
-            "wandb_dir": config_dict["wandb"]["dir"],
-            "wandb_api_key":args["wandb_api_key"]
+            "host": args["wandb_host"],
+            "project": args["wandb_project"],
+            "name": config_dict["wandb"]["name"],
+            "dir": config_dict["wandb"]["dir"],
+            "api_key":args["wandb_api_key"]
         }
+        print
         setup_wandb(wandb_dict)
     
     trainer = Trainer(
