@@ -4,12 +4,16 @@ from datasets import Dataset, load_dataset
 from datasets.dataset_dict import DatasetDict
 from pydantic import BaseModel
 
+from protein_lm.dataset.cluster_dataset import ClusterDataset
 
 class DatasetConfig(BaseModel):
-    dataset_type: Literal["csv", "huggingface"]
+    dataset_type: Literal["csv", "huggingface","colabfold"]
 
     # The path if local or the huggingface dataset name if huggingface
     dataset_loc: str
+
+    #This is cluster_table for ClusterDataset when dataset_type is colabfold
+    cluster_loc: Optional[str] = None
 
     # sample size to limit to, if any, usually for debugging
     subsample_size: Optional[int] = None
@@ -149,6 +153,11 @@ def get_huggingface_dataset(config: DatasetConfig) -> Dataset:
             {set(dataset_dict.keys())}"
     return train_val_test_split(dataset_dict, config)
 
+def get_colabfold_dataset(config:DatasetConfig) -> Dataset:
+    train_ds = ClusterDataset(dataset_path = config.dataset_loc, cluster_table_path = config.cluster_loc)
+    train_ds = Dataset.from_generator(train_ds.__iter__)
+    train_ds = DatasetDict({"train": train_ds})
+    return train_val_test_split(train_ds, config)
 
 def get_dataset(config_dict: Dict, tokenizer) -> Dataset:
     config = DatasetConfig(**config_dict)
@@ -157,6 +166,8 @@ def get_dataset(config_dict: Dict, tokenizer) -> Dataset:
         train_ds = get_csv_dataset(config)
     elif config.dataset_type == "huggingface":
         train_ds = get_huggingface_dataset(config)
+    elif config.dataset_type == "colabfold":
+        train_ds = get_colabfold_dataset(config)
     else:
         raise ValueError(f"Invalid dataset_type {config.dataset_type}!")
 

@@ -20,3 +20,4 @@ dependencies:
       - evaluate
       - pytest
       - fair-esm
+      - biopython==1.83

@@ -6,7 +6,9 @@ import os
 
 class WandBConfig(BaseModel):
     project: str = "protein_lm_scaling"
-    name: str
+    name: str = "plm"
+    host:str = ""
+    api_key:str = ""
     # directory to save to
     dir: Optional[str] = None
 
@@ -21,3 +23,4 @@ def setup_wandb(config_dict: Dict) -> None:
     os.environ["WANDB_PROJECT"] = config.project
     os.environ["WANDB_NAME"] = config.name
     os.environ["WANDB_DIR"] = config.dir
+    wandb.login(host=config.host, relogin=True, key = config.api_key)

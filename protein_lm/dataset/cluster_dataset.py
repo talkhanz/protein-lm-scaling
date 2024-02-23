@@ -47,4 +47,4 @@ class ClusterDataset(Dataset):
                 cluster_dir = f"{int(cluster_name) // 1000}000"
                 cluster_path = os.path.join(self.dataset_path, cluster_dir, f"{cluster_name}.fasta")
             seqs = self.get_cluster_seqs(cluster_path)
-            yield seqs[self.generator.integers(len(seqs))]
+            yield {"sequence":seqs[self.generator.integers(len(seqs))]}
