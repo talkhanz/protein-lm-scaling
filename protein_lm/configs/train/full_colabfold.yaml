@@ -47,7 +47,7 @@ model:
     position_embedding: "learned"
     rope_scaling_factor: 1.0
     rope_theta: 10000
-    max_sequence_length: 10
+    max_sequence_length: 1024
   pretrained_checkpoint: null
 
 # corresponds to DataCollatorConfig
