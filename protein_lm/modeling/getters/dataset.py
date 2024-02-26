@@ -154,7 +154,7 @@ def get_huggingface_dataset(config: DatasetConfig) -> Dataset:
     return train_val_test_split(dataset_dict, config)
 
 def get_colabfold_dataset(config:DatasetConfig) -> Dataset:
-    train_ds = ClusterDataset(dataset_path = config.dataset_loc, cluster_table_path = config.cluster_loc)
+    train_ds = ClusterDataset(dataset_path = config.dataset_loc, cluster_table_path = config.cluster_loc,subsample_size=config.subsample_size)
     train_ds = Dataset.from_generator(train_ds.__iter__)
     train_ds = DatasetDict({"train": train_ds})
     return train_val_test_split(train_ds, config)

@@ -11,6 +11,7 @@ class ClusterDataset(Dataset):
             self, 
             dataset_path: str, 
             cluster_table_path: str,
+            subsample_size:int,
             size_to_sample_prob: Callable = lambda x: x,
             seed: int = 42,    
         ) -> None:
@@ -20,7 +21,7 @@ class ClusterDataset(Dataset):
         self.cluster_to_seqs = {}
         self.cluster_table = pd.read_csv(
             cluster_table_path, dtype={'cluster_name': str, 'cluster_size': int}
-        )
+        ).sample(n=subsample_size)
         self.cluster_table['sample_prob'] = self.cluster_table['cluster_size'].apply(size_to_sample_prob)
         self.cluster_table['sample_prob'] /= self.cluster_table['sample_prob'].sum()
         self.generator = np.random.default_rng(seed)
