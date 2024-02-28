@@ -32,5 +32,7 @@ def get_model(config_dict: Dict):
             pretrained_model_name_or_path=config.pretrained_checkpoint,
             config=model_config,
         )
+    total_params = sum(p.numel() for p in model.parameters()) / (10**6)
+    print(f'model_parameters:{total_params} million')
 
     return model

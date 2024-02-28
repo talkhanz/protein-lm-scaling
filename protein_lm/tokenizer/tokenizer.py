@@ -6,7 +6,6 @@ from rust_trie import Trie
 
 class Tokenizer:
     def __init__(self, tokens: List[str], unk_token_id: Optional[int] = None):
-        self.vocab_size = len(tokens)
         self.ids_to_tokens = tokens
         self.trie = Trie(unk_token_id)
         for token in tokens:
@@ -16,6 +15,7 @@ class Tokenizer:
             self.ids_to_tokens += ["<unk>"]
         self.pad_token_id = self.ids_to_tokens.index("<pad>")
         self.mask_token_id = self.ids_to_tokens.index("<mask>")
+        self.vocab_size = len(self.ids_to_tokens)
 
 
     def __call__(self, sequences: Union[str, List], *args, **kwargs):
