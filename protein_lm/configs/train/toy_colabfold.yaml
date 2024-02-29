@@ -3,9 +3,9 @@ dataset:
   dataset_type: "colabfold"
   dataset_loc: "protein_lm/dataset/colabfold/output"
   cluster_loc: "protein_lm/dataset/colabfold/cluster_sizes.csv"
-  subsample_size: 3
+  subsample_size: 6
   split_seed: 2
-  val_size: 1
+  val_size: 2
   test_size: 1
   sequence_column_name: "sequence"
   max_sequence_length: 10

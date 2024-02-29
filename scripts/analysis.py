@@ -1,7 +1,6 @@
 import pandas as pd
 import os 
 from Bio import SeqIO
-from collections import defaultdict
 import matplotlib.pyplot as plt
 import pickle
 from joblib import Parallel, delayed
@@ -36,20 +35,20 @@ cluster_path =  "/weka/home-othertea/protein-lm-scaling/colabfold_parsing/cluste
 protein_gym_path = "/admin/home-talkhanz/repos/analysis/DMS_substitutions.csv"
 protein_gym_updated_path = "/admin/home-talkhanz/repos/analysis/DMS_analysis.csv"
 plot_path = "/admin/home-talkhanz/repos/analysis/plot.png"
-seq_dict_path =  "/admin/home-talkhanz/repos/analysis/seq_dict_final.pkl"
+seq_dict_path =  "/admin/home-talkhanz/repos/analysis/seq_dict.pkl"
 count_path = "/admin/home-talkhanz/repos/analysis/count_dist.pkl"
 pg_df = pd.read_csv(protein_gym_path)
 target_seqs = pg_df.target_seq.unique().tolist()
 save = True
 id_list = []
 unknown_id = 0
+total_seqs =  0
 def default_value():
     return 0
 def default_value_id():
     return {'cluster_size': 0 , 'cluster_id': ''}
 target_seq_ht = dict(zip(target_seqs,['FOUND' for i in range(len(target_seqs))]))
-count_found = defaultdict(default_value)
-
+{'ABJSBFJS': 'FOUND'}
 def get_filename(dataset_path,cluster,filename):
     if filename == 'unk':
         filepath = os.path.join(dataset_path,cluster,'unk.fasta')
@@ -59,12 +58,15 @@ def get_filename(dataset_path,cluster,filename):
 
 def parse_id(filepath):
     global unknown_id
-    count_dist = defaultdict(default_value)
+    global total_seqs
+    known_ids = ['uniref100','bfd','mgnify','metaeuk','smag','topaz','gpz','metaclust']
+    count_dist = dict(zip(known_ids,[0 for key in known_ids]))
     cluster_id  = filepath.split('.fasta')[0].split('/')[-1]
     cluster_size = len([x for x in SeqIO.parse(filepath, 'fasta')])
     for x in SeqIO.parse(filepath, 'fasta'):
+        total_seqs = total_seqs + 1
         x_id = str(x.id).lower()
-        seq = str(x.seq)
+        seq = str(x.seq).upper()
         if 'uniref100' in x_id:
             count_dist['uniref100'] = count_dist['uniref100'] + 1
         elif 'bfd' in x_id:
@@ -83,6 +85,9 @@ def parse_id(filepath):
             count_dist['metaclust'] = count_dist['metaclust'] + 1  
         else:
             unknown_id = unknown_id + 1
+            ret_val = count_dist.get(x_id,"NOT_FOUND")
+            if ret_val == "NOT_FOUND":
+                count_dist[x_id] = 0
             count_dist[x_id] = count_dist[x_id] + 1
             if unknown_id == 100 *1000:
                 break
@@ -95,18 +100,17 @@ def get_target_seq_cluster_info(filepath):
    
     cluster_id  = filepath.split('.fasta')[0].split('/')[-1]
     cluster_size = len([x for x in SeqIO.parse(filepath, 'fasta')])
-    seq_dict = defaultdict(default_value_id)
+    seq_dict = {}
     # print(f'########START#######')
     # print(f"get_target_seq_cluster_info({filepath})")
     
     for x in SeqIO.parse(filepath, 'fasta'):
         x_id = str(x.id).lower()
-        seq = str(x.seq)
+        seq = str(x.seq).upper()
         try:
             val = target_seq_ht.get(seq,"NOT_FOUND")
             if val == "FOUND":
-                seq_dict[seq]['cluster_id'] = cluster_id
-                seq_dict[seq]['cluster_size'] = cluster_size
+                seq_dict.update({seq:{'cluster_id': cluster_id, 'cluster_size':cluster_size}})
         except Exception as e:
             error = True
     # print(f'########END#######')
@@ -140,11 +144,15 @@ if task == 'target_seq':
 elif task == "id_analysis":
     with tqdm_joblib(tqdm(desc=f"{task}", total=len(paths))) as progress_bar:
         count_dists = Parallel(n_jobs=cpu_count)(delayed(parse_id)(path) for path in paths)
-    count_dist_final = defaultdict(default_value)
+    count_dist_final = {}
     for count_dist_dict in count_dists:
         for key,value in count_dist_dict.items():
+            ret_val = count_dist_final.get(key,'NOT_FOUND')
+            if ret_val == 'NOT_FOUND':
+                count_dist_final[key] = 0
             count_dist_final[key] = count_dist_final[key] + count_dist_dict[key]
     save_variable(var = count_dist_final , path = count_path)
     save_plot(count_dist = count_dist_final, plot_path = plot_path)
 
 
+print(f'total:{total_seqs}')

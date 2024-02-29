@@ -21,3 +21,4 @@ dependencies:
       - pytest
       - fair-esm
       - biopython==1.83
+      - scikit-learn==1.4.1.post1
