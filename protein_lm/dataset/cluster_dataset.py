@@ -21,28 +21,20 @@ class ClusterDataset(Dataset):
         self.dataset_path = dataset_path
         self.cluster_table_path = cluster_table_path
         self.cluster_to_seqs = {}
-        self.cluster_table = pd.read_csv(
+        self.cluster_table_dict = {"complete": None,"train": None , "test": None, "val": None}
+        self.cluster_table_dict["complete"]  = pd.read_csv(
             cluster_table_path, dtype={'cluster_name': str, 'cluster_size': int}
         ).sample(n=subsample_size)
-        self.cluster_table,self.cluster_table_eval = train_test_split(self.cluster_table,test_size = val_size + test_size)
-        self.cluster_table_eval,self.cluster_table_test = train_test_split(self.cluster_table_eval,test_size = test_size)
-        
-        self.cluster_table['sample_prob'] = self.cluster_table['cluster_size'].apply(size_to_sample_prob)
-        self.cluster_table['sample_prob'] /= self.cluster_table['sample_prob'].sum()
-        
-        self.cluster_table_test['sample_prob'] = self.cluster_table_test['cluster_size'].apply(size_to_sample_prob)
-        self.cluster_table_test['sample_prob'] /= self.cluster_table_test['sample_prob'].sum()
-
-        self.cluster_table_eval['sample_prob'] = self.cluster_table_eval['cluster_size'].apply(size_to_sample_prob)
-        self.cluster_table_eval['sample_prob'] /= self.cluster_table_eval['sample_prob'].sum()
-
-        self.test_size = test_size
-        self.val_size = val_size
+        self.cluster_table_dict["train"],self.cluster_table_dict["test"] = train_test_split(self.cluster_table_dict["complete"],test_size = test_size +val_size)
+        self.cluster_table_dict["test"],self.cluster_table_dict["val"] = train_test_split(self.cluster_table_dict["test"],test_size = val_size)
+        for split in ["complete","train","test","val"]:
+            self.cluster_table_dict[split]['sample_prob'] = self.cluster_table_dict[split]['cluster_size'].apply(size_to_sample_prob)
+            self.cluster_table_dict[split]['sample_prob'] /= self.cluster_table_dict[split]['sample_prob'].sum()
         self.generator = np.random.default_rng(seed)
-        print(self.cluster_table.shape,self.cluster_table_eval.shape,self.cluster_table_test.shape)
+        
 
     def __len__(self) -> int:
-        return len(self.cluster_table)
+        return len(self.cluster_table_dict["complete"])
     
     def get_cluster_seqs(self, cluster_path: str) -> list:
         if cluster_path not in self.cluster_to_seqs:
@@ -51,9 +43,9 @@ class ClusterDataset(Dataset):
             ]
         return self.cluster_to_seqs[cluster_path]
 
-    def __iter__(self):
-        for _ in range(len(self)):
-            cluster_name = self.cluster_table.sample(
+    def __iter__(self,split = "train"):
+        for _ in range(len(self.cluster_table_dict[split])):
+            cluster_name = self.cluster_table_dict[split].sample(
                 n=1, weights='sample_prob', random_state=self.generator
             )[['cluster_name']].values[0][0]
             # Now we map cluster_name to the folder it is in
@@ -64,29 +56,4 @@ class ClusterDataset(Dataset):
                 cluster_path = os.path.join(self.dataset_path, cluster_dir, f"{cluster_name}.fasta")
             seqs = self.get_cluster_seqs(cluster_path)
             yield {"sequence":seqs[self.generator.integers(len(seqs))]}
-    def test__iter__(self):
-        for _ in range(self.test_size):
-            cluster_name = self.cluster_table_test.sample(
-                n=1, weights='sample_prob', random_state=self.generator
-            )[['cluster_name']].values[0][0]
-            # Now we map cluster_name to the folder it is in
-            if cluster_name == "unk":
-                cluster_path = os.path.join(self.dataset_path, "unk", "unk.fasta")
-            else:
-                cluster_dir = f"{int(cluster_name) // 1000}000"
-                cluster_path = os.path.join(self.dataset_path, cluster_dir, f"{cluster_name}.fasta")
-            seqs = self.get_cluster_seqs(cluster_path)
-            yield {"sequence":seqs[self.generator.integers(len(seqs))]}
-    def val__iter__(self):
-        for _ in range(self.val_size):
-            cluster_name = self.cluster_table_eval.sample(
-                n=1, weights='sample_prob', random_state=self.generator
-            )[['cluster_name']].values[0][0]
-            # Now we map cluster_name to the folder it is in
-            if cluster_name == "unk":
-                cluster_path = os.path.join(self.dataset_path, "unk", "unk.fasta")
-            else:
-                cluster_dir = f"{int(cluster_name) // 1000}000"
-                cluster_path = os.path.join(self.dataset_path, cluster_dir, f"{cluster_name}.fasta")
-            seqs = self.get_cluster_seqs(cluster_path)
-            yield {"sequence":seqs[self.generator.integers(len(seqs))]}
+

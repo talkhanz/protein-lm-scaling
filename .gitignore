@@ -6,6 +6,8 @@ protein_lm/evaluation/output/
 *.pyc
 wandb/
 checkpoints/
+experiments/
 __pycache__/
 protein_lm.egg-info/
 *.DS_Store
+*.env

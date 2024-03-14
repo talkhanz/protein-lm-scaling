@@ -16,9 +16,11 @@ dataset:
 # corresponds to HuggingFace's TrainingArguments
 training_arguments:
   output_dir: "checkpoints/colabfold"
-  max_steps: 100
+  max_steps: 1000
   num_train_epochs: 1
   learning_rate: 0.1
+  lr_scheduler_type: "linear"
+  warmup_ratio: 0.1
   weight_decay: 0.1
   logging_strategy: "steps"
   logging_steps: 10

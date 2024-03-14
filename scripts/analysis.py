@@ -43,12 +43,8 @@ save = True
 id_list = []
 unknown_id = 0
 total_seqs =  0
-def default_value():
-    return 0
-def default_value_id():
-    return {'cluster_size': 0 , 'cluster_id': ''}
-target_seq_ht = dict(zip(target_seqs,['FOUND' for i in range(len(target_seqs))]))
-{'ABJSBFJS': 'FOUND'}
+target_seq_ht = dict(zip([seq.upper() for seq in target_seqs],['FOUND' for i in range(len(target_seqs))]))
+
 def get_filename(dataset_path,cluster,filename):
     if filename == 'unk':
         filepath = os.path.join(dataset_path,cluster,'unk.fasta')
@@ -88,10 +84,7 @@ def parse_id(filepath):
             ret_val = count_dist.get(x_id,"NOT_FOUND")
             if ret_val == "NOT_FOUND":
                 count_dist[x_id] = 0
-            count_dist[x_id] = count_dist[x_id] + 1
-            if unknown_id == 100 *1000:
-                break
-            
+            count_dist[x_id] = count_dist[x_id] + 1        
     
     return count_dist
 
