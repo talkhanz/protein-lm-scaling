@@ -49,7 +49,7 @@ model:
     position_embedding: "alibi"
     rope_scaling_factor: 1.0
     rope_theta: 10000
-    max_sequence_length: 1024
+    max_sequence_length: 128
   pretrained_checkpoint: null
 
 # corresponds to DataCollatorConfig
