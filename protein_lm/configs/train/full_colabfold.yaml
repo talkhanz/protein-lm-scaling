@@ -3,12 +3,12 @@ dataset:
   dataset_type: "colabfold"
   dataset_loc: "/weka/home-othertea/protein-lm-scaling/colabfold_parsing/output"
   cluster_loc: "/weka/home-othertea/protein-lm-scaling/colabfold_parsing/cluster_sizes.csv"
-  subsample_size: 1000
+  subsample_size: 10000
   split_seed: 2
-  val_size: 100
-  test_size: 100
+  val_size: 1000
+  test_size: 1000
   sequence_column_name: "sequence"
-  max_sequence_length: 1024
+  max_sequence_length: 128
   do_curriculum_learning: false
 
 
@@ -26,7 +26,7 @@ training_arguments:
   logging_steps: 10
   save_strategy: "steps"
   evaluation_strategy: "steps"
-  per_device_train_batch_size: 32
+  per_device_train_batch_size: 16
   save_steps: 50
   report_to: "wandb"
   label_names:
