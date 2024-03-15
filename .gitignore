@@ -7,6 +7,7 @@ protein_lm/evaluation/output/
 wandb/
 checkpoints/
 experiments/
+slurm/
 __pycache__/
 protein_lm.egg-info/
 *.DS_Store
