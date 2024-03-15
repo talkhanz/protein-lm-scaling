@@ -452,8 +452,11 @@ class APTModel(GPT2PreTrainedModel):
         self.wte = nn.Embedding(config.vocab_size, self.embed_dim)
         self.position_embedding = config.position_embedding if hasattr(config, "position_embedding") else "learned"
         
-        if self.position_embedding=="learned" or self.position_embedding == 'rope' or self.position_embedding == 'rerope' or self.position_embedding=="linear_rope_scaling" or self.position_embedding =="dynamic_rope_scaling":
+        if self.position_embedding=="learned":
             self.wpe = nn.Embedding(config.max_position_embeddings, self.embed_dim)
+            self.alibi = None
+        elif self.position_embedding in ['rope','rerope','linear_rope_scaling','dynamic_rope_scaling']:
+            self.wpe = None
             self.alibi = None
         elif self.position_embedding=="alibi":
             maxpos = config.n_positions
@@ -566,12 +569,13 @@ class APTModel(GPT2PreTrainedModel):
         if inputs_embeds is None:
             inputs_embeds = self.wte(input_ids)
 
-        if self.position_embedding=="learned" or self.position_embedding == 'rope' or self.position_embedding == 'rerope' or self.position_embedding=="linear_rope_scaling" or self.position_embedding =="dynamic_rope_scaling":
+        if self.position_embedding=="learned":
             position_embeds = self.wpe(position_ids)
             hidden_states = inputs_embeds + position_embeds
-        else:
+        elif self.position_embedding in ['rope','rerope','linear_rope_scaling','dynamic_rope_scaling','alibi']:
             hidden_states = inputs_embeds
-        
+        else:
+            raise Exception(f'invalid {self.position_embedding} provided')
 
         if token_type_ids is not None:
             token_type_embeds = self.wte(token_type_ids)
