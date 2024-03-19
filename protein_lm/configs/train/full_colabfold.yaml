@@ -27,7 +27,8 @@ training_arguments:
   save_strategy: "steps"
   evaluation_strategy: "steps"
   per_device_train_batch_size: 16
-  save_steps: 50
+  save_steps: 100
+  eval_steps: 100
   report_to: "wandb"
   label_names:
     - 'labels'
@@ -46,7 +47,7 @@ tokenizer:
 model:
   nn_model_type: "APT"
   nn_model_config_args:
-    position_embedding: "dynamic_rope_scaling"
+    position_embedding: "alibi"
     rope_scaling_factor: 1.0
     rope_theta: 10000
     max_sequence_length: 128
