@@ -16,7 +16,7 @@ dataset:
 # corresponds to HuggingFace's TrainingArguments
 training_arguments:
   output_dir: "checkpoints/colabfold"
-  max_steps: 1000
+  max_steps: 2000
   num_train_epochs: 1
   learning_rate: 0.1
   lr_scheduler_type: "linear"
@@ -47,7 +47,7 @@ tokenizer:
 model:
   nn_model_type: "APT"
   nn_model_config_args:
-    position_embedding: "dynamic_rope_scaling"
+    position_embedding: "linear_rope_scaling"
     rope_scaling_factor: 1.0
     rope_theta: 10000
     max_sequence_length: 128
