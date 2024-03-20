@@ -18,7 +18,7 @@ training_arguments:
   output_dir: "checkpoints/colabfold"
   max_steps: 2000
   num_train_epochs: 1
-  learning_rate: 0.1
+  learning_rate: 0.0003
   lr_scheduler_type: "linear"
   warmup_ratio: 0.1
   weight_decay: 0.1
