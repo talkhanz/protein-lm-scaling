@@ -49,13 +49,21 @@ class APTAttention(GPT2Attention):
         # Layer-wise attention scaling, reordering, and upcasting
         self.scale_attn_by_inverse_layer_idx = config.scale_attn_by_inverse_layer_idx
         self.layer_idx = layer_idx
-
+        self.standard_attn = False
+        self.gqa_attn = False
+        self.reorder_and_upcast_attn = False
+        self.pairwise_attn = False
         if self.attn_type == "gqa":
             self.gqa_attn = True
         elif self.attn_type == "reorder_and_upcast_attn":
             self.reorder_and_upcast_attn = True
         elif self.attn_type == "standard":
             self.standard_attn = True
+        elif self.attn_type == "pairwise":
+            self.is_cross_attention = False #has to be causal
+            self.pairwise_attn = True
+            
+
 
         #self.reorder_and_upcast_attn = config.reorder_and_upcast_attn #comment out because config now states attn type
 
@@ -88,7 +96,6 @@ class APTAttention(GPT2Attention):
 
     def _attn(self, query, key, value, attention_mask=None, head_mask=None,alibi_bias=None):
         attn_weights = torch.matmul(query, key.transpose(-1, -2))
-
         if self.scale_attn_weights:
             attn_weights = attn_weights / torch.full(
                 [], value.size(-1) ** 0.5, dtype=attn_weights.dtype, device=attn_weights.device
@@ -114,6 +121,54 @@ class APTAttention(GPT2Attention):
             # Apply the attention mask
             attn_weights = attn_weights + attention_mask
 
+        attn_weights = nn.functional.softmax(attn_weights, dim=-1)
+
+        # Downcast (if necessary) back to V's dtype (if in mixed-precision) -- No-Op otherwise
+        attn_weights = attn_weights.type(value.dtype)
+        attn_weights = self.attn_dropout(attn_weights)
+
+        # Mask heads if we want to
+        if head_mask is not None:
+            attn_weights = attn_weights * head_mask
+
+        attn_output = torch.matmul(attn_weights, value)
+
+        return attn_output, attn_weights
+    
+    def _pairwise_attn(self, query, key, value, attention_mask=None, head_mask=None,alibi_bias=None):
+
+        attn_weights = torch.matmul(query, key.transpose(-1, -2))
+        mask_value = torch.finfo(attn_weights.dtype).min
+        attention_mask = torch.triu(
+            torch.zeros_like(attn_weights) + mask_value, diagonal=1
+            )
+        if self.scale_attn_weights:
+            attn_weights = attn_weights / torch.full(
+                [], value.size(-1) ** 0.5, dtype=attn_weights.dtype, device=attn_weights.device
+            )
+
+        # Layer-wise attention scaling
+        if self.scale_attn_by_inverse_layer_idx:
+            attn_weights = attn_weights / float(self.layer_idx + 1)
+
+        if not self.is_cross_attention:
+            # if only "normal" attention layer implements causal mask
+            query_length, key_length = query.size(-2), key.size(-2)
+            # causal_mask = self.bias[:, :, key_length - query_length : key_length, :key_length]
+            causal_mask =  ~(attention_mask == mask_value)
+            # Need to be a tensor, otherwise we get error: `RuntimeError: expected scalar type float but found double`.
+            # Need to be on the same device, otherwise `RuntimeError: ..., x and y to be on the same device`
+            mask_value = torch.full([], mask_value, dtype=attn_weights.dtype).to(attn_weights.device)
+            attn_weights = torch.where(causal_mask, attn_weights.to(attn_weights.dtype), mask_value)
+        
+        if alibi_bias is not None:
+            attn_weights = attn_weights + alibi_bias[:,:,:attn_weights.size(-1)]
+        
+        if attention_mask is not None:
+            # Apply the attention mask
+            attn_weights = attn_weights + attention_mask
+        
+        
         attn_weights = nn.functional.softmax(attn_weights, dim=-1)
 
         # Downcast (if necessary) back to V's dtype (if in mixed-precision) -- No-Op otherwise
@@ -330,6 +385,8 @@ class APTAttention(GPT2Attention):
             attn_output, attn_weights = self._attn(query, key, value, attention_mask, head_mask,alibi_bias=alibi_bias)
         elif self.gqa_attn:
             attn_output, attn_weights = self._gqa_attn(query, key, value, attention_mask,alibi_bias=alibi_bias)
+        elif self.pairwise_attn:
+            attn_output, attn_weights = self._pairwise_attn(query, key, value, attention_mask, head_mask,alibi_bias=alibi_bias)
         attn_output = self._merge_heads(attn_output, self.num_heads, self.head_dim)
         attn_output = self.c_proj(attn_output)
         attn_output = self.resid_dropout(attn_output)

@@ -31,13 +31,29 @@ class Tokenizer:
         return_tensor: bool = False,
         max_sequence_length: Optional[int] = None,
     ) -> List[int]:
+        print('before_tokenizer_sequence:',sequence)
         if max_sequence_length is not None:
             if add_special_tokens:
                 max_sequence_length -= 2
             sequence = sequence[:max_sequence_length]
+        print('clip_tokenizer_sequence:',sequence)
         if add_special_tokens:
-            sequence = "<cls>" + sequence + "<eos>"
+            if not sequence.startswith("<cls>") and sequence.endswith("<eos>"):
+                print('adding cls')
+                sequence = "<cls>" + sequence
+            elif sequence.startswith("<cls>") and not sequence.endswith("<eos>"):
+                print('adding eos')
+                sequence =  sequence + "<eos>"
+            elif sequence.startswith("<cls>") and sequence.endswith("<eos>"):
+                print('adding nothing')
+                sequence = "" + sequence + "" # make no change
+            elif not sequence.startswith("<cls>") and not sequence.endswith("<eos>"):
+                sequence = "<cls>" + sequence + "<eos>"
+                
+
+        print('after_tokenizer_sequence:',sequence)
         output = self.trie.tokenize(sequence)
+        print('final_tokenizer_sequence:',output)
         if return_tensor:
             output = torch.tensor(output, dtype=torch.long)
         return output

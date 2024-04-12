@@ -5,9 +5,11 @@ from datasets.dataset_dict import DatasetDict
 from pydantic import BaseModel
 
 from protein_lm.dataset.cluster_dataset import ClusterDataset
+from protein_lm.dataset.paired_dataset import PairedDataset
 
+import torch
 class DatasetConfig(BaseModel):
-    dataset_type: Literal["csv", "huggingface","colabfold"]
+    dataset_type: Literal["csv", "huggingface","colabfold","paired"]
 
     # The path if local or the huggingface dataset name if huggingface
     dataset_loc: str
@@ -33,11 +35,29 @@ class DatasetConfig(BaseModel):
     sequence_column_name: str
     
     max_sequence_length: int
+    
     do_curriculum_learning: bool
     curriculum_learning_strategy: Optional[str] = None
     curriculum_learning_column_name: Optional[str] = None
 
+def set_input_ids_sos(    
+    result=None,
+    tokenizer=None,
+    sequence_column_name="sequence",
+    max_sequence_length=1024,
+    ):  
+    print('result:',result[sequence_column_name])
+    seqs_tokenized = tokenizer(
+            result[sequence_column_name],
+            max_sequence_length=max_sequence_length,
+            add_special_tokens=False,
+            return_tensors=True,)
 
+    result['input_ids'] = seqs_tokenized
+    print('seqs_tokenized:',result['input_ids'])
+
+
+    return result
 def set_input_ids(
     result=None,
     tokenizer=None,
@@ -158,6 +178,11 @@ def get_colabfold_dataset(config:DatasetConfig) -> Dataset:
     ds = DatasetDict({"train":  Dataset.from_generator(ds.__iter__,gen_kwargs={"split": "train"}),"test": Dataset.from_generator(ds.__iter__,gen_kwargs={"split": "test"}),"val":Dataset.from_generator(ds.__iter__,gen_kwargs={"split": "val"})})
     return ds
 
+def get_paired_dataset(config:DatasetConfig) -> Dataset:
+    ds = PairedDataset(dataset_path = config.dataset_loc, cluster_table_path = config.cluster_loc,subsample_size=config.subsample_size,val_size = config.val_size,test_size = config.test_size)
+    ds = DatasetDict({"train":  Dataset.from_generator(ds.__iter__,gen_kwargs={"split": "train"}),"test": Dataset.from_generator(ds.__iter__,gen_kwargs={"split": "test"}),"val":Dataset.from_generator(ds.__iter__,gen_kwargs={"split": "val"})})
+    return ds
+
 def get_dataset(config_dict: Dict, tokenizer) -> Dataset:
     config = DatasetConfig(**config_dict)
 
@@ -167,26 +192,40 @@ def get_dataset(config_dict: Dict, tokenizer) -> Dataset:
         train_ds = get_huggingface_dataset(config)
     elif config.dataset_type == "colabfold":
         train_ds = get_colabfold_dataset(config)
+    elif config.dataset_type == "paired":
+        train_ds = get_paired_dataset(config)
     else:
         raise ValueError(f"Invalid dataset_type {config.dataset_type}!")
+    if config.dataset_type == "seqofseqs":
+        train_ds = train_ds.map(
+            lambda seqs: set_input_ids_sos(
+                result=seqs,
+                tokenizer=tokenizer,
+                sequence_column_name=config.sequence_column_name,
+                max_sequence_length=None,
+            ),
+        
+            batched=True,
+        )
+        train_ds = train_ds.map(set_labels, batched=True)
+    else:
+        train_ds = train_ds.map(
+            lambda e: set_input_ids(
+                result=e,
+                tokenizer=tokenizer,
+                sequence_column_name=config.sequence_column_name,
+                max_sequence_length=config.max_sequence_length,
+            ),
+            batched=True,
+        )
+        train_ds = train_ds.map(set_labels, batched=True)
+        if config.do_curriculum_learning:
+            train_ds = train_ds.map(lambda e: batch_set_curriculum_learning_column(
+                result = e,
+                input_column_name = config.sequence_column_name,
+                curriculum_learning_column_name = config.curriculum_learning_column_name,
+                strategy = config.curriculum_learning_strategy
 
-    train_ds = train_ds.map(
-        lambda e: set_input_ids(
-            result=e,
-            tokenizer=tokenizer,
-            sequence_column_name=config.sequence_column_name,
-            max_sequence_length=config.max_sequence_length,
-        ),
-        batched=True,
-    )
-    train_ds = train_ds.map(set_labels, batched=True)
-    if config.do_curriculum_learning:
-        train_ds = train_ds.map(lambda e: batch_set_curriculum_learning_column(
-            result = e,
-            input_column_name = config.sequence_column_name,
-            curriculum_learning_column_name = config.curriculum_learning_column_name,
-            strategy = config.curriculum_learning_strategy
-
-        ),batched=True)
+            ),batched=True)
 
     return train_ds
