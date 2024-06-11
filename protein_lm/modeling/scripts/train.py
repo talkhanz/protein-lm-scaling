@@ -38,11 +38,11 @@ def train(
     data_collator = get_data_collator(
         config_dict=config_dict["data_collator"],
     )
-    if config_dict['dataset']['do_curriculum_learning']:
-        #groupy_by_length uses the LengthGroupedSampler, 
-        #we have precomputed the lengths (or any discrete column) which can be used as sampling criteria 
-        config_dict["training_arguments"]['group_by_length'] = config_dict['dataset']['do_curriculum_learning']
-        config_dict["training_arguments"]['length_column_name'] = config_dict['dataset']['curriculum_learning_column_name']
+    # if config_dict['dataset']['do_curriculum_learning']:
+    #     #groupy_by_length uses the LengthGroupedSampler, 
+    #     #we have precomputed the lengths (or any discrete column) which can be used as sampling criteria 
+    #     config_dict["training_arguments"]['group_by_length'] = config_dict['dataset']['do_curriculum_learning']
+    #     config_dict["training_arguments"]['length_column_name'] = config_dict['dataset']['curriculum_learning_column_name']
     
     training_args = get_training_args(
         config_dict=config_dict["training_arguments"],
@@ -56,7 +56,6 @@ def train(
             "dir": config_dict["wandb"]["dir"],
             "api_key":args["wandb_api_key"]
         }
-        print
         setup_wandb(wandb_dict)
     
     trainer = Trainer(

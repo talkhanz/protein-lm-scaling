@@ -21,7 +21,7 @@ training_arguments:
   save_steps: 5
   evaluation_strategy: "steps"
   eval_steps: 5
-  report_to: "wandb"
+  report_to: "none"
   label_names:
     - 'labels'
   no_cuda: false

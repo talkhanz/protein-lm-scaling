@@ -1,7 +1,5 @@
 from typing import Dict, Literal,Optional
-
 from pydantic import BaseModel
-
 from protein_lm.tokenizer.tokenizer import AptTokenizer
 
 

@@ -14,6 +14,7 @@ class APTConfig(GPT2Config):
         tokenizer=None,
         max_sequence_length = 1024,
         attn_type="standard",
+        position_embedding_type = "",
         **kwargs
     ):
         super().__init__(**kwargs)
@@ -22,5 +23,7 @@ class APTConfig(GPT2Config):
         self.tokenizer = tokenizer
         self.max_sequence_length = max_sequence_length
         self.attn_type = attn_type
+        self.position_embedding_type = position_embedding_type
         self.vocab_size = getattr(AptTokenizer(),'vocab_size')
+        self.pad_id = getattr(AptTokenizer(),'tokens').index("<pad>")
 

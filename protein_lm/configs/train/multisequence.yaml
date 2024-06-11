@@ -1,17 +1,21 @@
 # corresponds to DatasetConfig
 dataset:
-  dataset_type: "paired"
-  dataset_loc: "protein_lm/dataset/colabfold/output"
-  cluster_loc: "protein_lm/dataset/colabfold/cluster_sizes.csv"
-  subsample_size: 6
+  dataset_type: "multisequence"
+  dataset_loc: "protein_lm/dataset/multisequence/uniref_toy.csv"
+  mapping_table_loc: ""
   split_seed: 2
-  val_size: 2
-  test_size: 1
+  subsample_size: 1.0 # 100% of complete set,this parameter can also be a number
+  val_size: 0.1 # 10% of complete set, this parameter can also be a number
+  test_size: 0.2 # 20% of complete set, this parameter can also be a number
   sequence_column_name: "sequence"
-  max_sequence_length: 5
-  do_curriculum_learning: false
-  curriculum_learning_strategy: sequence_length # supported options - 'sequence_length','ppl' 'plddt'
-  curriculum_learning_column_name: sequence_length # supported options - 'sequence_length','ppl' 'plddt'
+  cond_sequence_column_names: 
+  - "UniRef50_clust_str"
+  - "UniRef90_clust_str"
+  focus_sequence_column_name: "U100"
+  max_cond_sequence_length: 10
+  max_focus_sequence_length: 10
+  max_sequence_length: 20 # has to be greater than or equal sum(max_cond_sequence_length,max_focus_sequence_length)
+
 
 
 # corresponds to HuggingFace's TrainingArguments
@@ -27,7 +31,7 @@ training_arguments:
   logging_steps: 1
   save_strategy: "steps"
   evaluation_strategy: "steps"
-  per_device_train_batch_size: 1
+  per_device_train_batch_size: 3
   save_steps: 1
   eval_steps: 5
   report_to: "none"
@@ -48,11 +52,12 @@ tokenizer:
 model:
   nn_model_type: "APT"
   nn_model_config_args:
-    position_embedding: "rope"
+    position_embedding: "learned"
     rope_scaling_factor: 1.0
     rope_theta: 10000
-    max_sequence_length: 5
+    max_sequence_length: 14 # atleast 2 * n + 4
     attn_type: 'pairwise'
+    position_embedding_type: 'separate_condition_and_focus_position_embeddings'
   pretrained_checkpoint: null
 
 # corresponds to DataCollatorConfig

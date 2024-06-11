@@ -14,6 +14,10 @@ from protein_lm.modeling.utils.rerope_embedding import RectifiedRotaryEmbedding
 from protein_lm.modeling.utils.alibi_embedding import create_alibi_tensor
 from protein_lm.modeling.utils.scaled_rope_embedding import LlamaLinearScalingRotaryEmbedding,LlamaDynamicNTKScalingRotaryEmbedding
 from protein_lm.modeling.utils.modules import ContactPredictionHead
+from protein_lm.modeling.utils.paired_embedding import create_paired_position_ids,get_paired_position_embedding
+
+from protein_lm.tokenizer.tokenizer import AptTokenizer
+
 
 logger = logging.get_logger(__name__)
 
@@ -109,6 +113,7 @@ class APTAttention(GPT2Attention):
             # if only "normal" attention layer implements causal mask
             query_length, key_length = query.size(-2), key.size(-2)
             causal_mask = self.bias[:, :, key_length - query_length : key_length, :key_length]
+            diagonal_block = None
             mask_value = torch.finfo(attn_weights.dtype).min
             # Need to be a tensor, otherwise we get error: `RuntimeError: expected scalar type float but found double`.
             # Need to be on the same device, otherwise `RuntimeError: ..., x and y to be on the same device`
@@ -359,7 +364,11 @@ class APTAttention(GPT2Attention):
         if self.rot_emb:
             bsz, q_len, _ = hidden_states.size()
             if self.position_embedding == 'rope':
+                print(f'hidden_states:{hidden_states.shape} {hidden_states}')
                 query, key = self.rot_emb(query,key)
+                print(f'query:{query.shape} key:{key.shape}')
+                # query_cond, key_cond = self.rot_emb(query_cond,key_cond)
+                # query_focus, key_focus = self.rot_emb(query_focus,key_focus)
             elif self.position_embedding == 'rerope':
                 query = query.reshape(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
                 query *= ((position_ids + 1)[:, None, :, None].log() / torch.log(torch.tensor(self.max_sequence_length)).item()).clip(1).to(query.dtype)
@@ -503,14 +512,15 @@ class APTBlock(nn.Module):
 class APTModel(GPT2PreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
-
+        self.pad_id = config.pad_id
         self.embed_dim = config.hidden_size
-
         self.wte = nn.Embedding(config.vocab_size, self.embed_dim)
         self.position_embedding = config.position_embedding if hasattr(config, "position_embedding") else "learned"
-        
+        self.position_embedding_type = config.position_embedding_type
         if self.position_embedding=="learned":
-            self.wpe = nn.Embedding(config.max_position_embeddings, self.embed_dim)
+            self.wpe = nn.Embedding(config.max_position_embeddings, self.embed_dim,padding_idx=self.pad_id)
+            if self.position_embedding_type == 'separate_condition_and_focus_position_embeddings':
+                self.wpe_conditioning = nn.Embedding(config.max_position_embeddings, self.embed_dim,padding_idx=self.pad_id)
             self.alibi = None
         elif self.position_embedding in ['rope','rerope','linear_rope_scaling','dynamic_rope_scaling']:
             self.wpe = None
@@ -549,6 +559,7 @@ class APTModel(GPT2PreTrainedModel):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
+        sentinel_indices: Optional[torch.LongTensor]=None,
     ) -> Union[Tuple, BaseModelOutputWithPastAndCrossAttentions]:
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
@@ -569,9 +580,11 @@ class APTModel(GPT2PreTrainedModel):
             batch_size = inputs_embeds.shape[0]
         else:
             raise ValueError("You have to specify either input_ids or inputs_embeds")
-
         device = input_ids.device if input_ids is not None else inputs_embeds.device
+        
 
+        print('sentinel_indices###')
+        print(sentinel_indices)
         if token_type_ids is not None:
             token_type_ids = token_type_ids.view(-1, input_shape[-1])
         if position_ids is not None:
@@ -583,8 +596,18 @@ class APTModel(GPT2PreTrainedModel):
         else:
             past_length = past_key_values[0][0].size(-2)
         if position_ids is None:
-            position_ids = torch.arange(past_length, input_shape[-1] + past_length, dtype=torch.long, device=device)
-            position_ids = position_ids.unsqueeze(0).view(-1, input_shape[-1])
+            # print(f'past_key_values:{past_key_values}')
+            if self.position_embedding_type == 'separate_condition_and_focus_position_embeddings':
+                position_ids = create_paired_position_ids(input_ids, sentinel_indices)
+                position_ids = position_ids.unsqueeze(0).view(-1, input_shape[-1])
+                # position_ids_cond = position_ids_cond.unsqueeze(0).view(-1, input_shape[-1])
+                # position_ids_focus = position_ids_focus.unsqueeze(0).view(-1, input_shape[-1])
+                print(f'paired_position_ids:{position_ids}')
+                # print(f'paired_position_ids_cond:{position_ids_cond}')
+                # print(f'paired_position_ids_focus:{position_ids_focus}')
+            else:
+                position_ids = torch.arange(past_length, input_shape[-1] + past_length, dtype=torch.long, device=device)
+                position_ids = position_ids.unsqueeze(0).view(-1, input_shape[-1])
 
         # GPT2Attention mask.
         if attention_mask is not None:
@@ -625,14 +648,39 @@ class APTModel(GPT2PreTrainedModel):
 
         if inputs_embeds is None:
             inputs_embeds = self.wte(input_ids)
-
+                
         if self.position_embedding=="learned":
-            position_embeds = self.wpe(position_ids)
-            hidden_states = inputs_embeds + position_embeds
+            
+            if self.position_embedding_type == 'separate_condition_and_focus_position_embeddings':
+                # pc = position_ids_cond[position_ids_cond != 0]
+                # pf = position_ids_focus[position_ids_focus != 0]
+                # print(f'input_embeds:{inputs_embeds.shape} {inputs_embeds}')
+                # print(f'paired_position_ids_cond:{pc.shape} {pc}')
+                # print(f'paired_position_ids_focus:{pf.shape} {pf}')
+
+                # position_embeds_cond = self.wpe_conditioning(position_ids_cond)
+                # position_embeds_focus = self.wpe(position_ids_focus)
+                # position_embeds = self.wpe(position_ids)
+                position_embeds = get_paired_position_embedding(embedding = self.wpe_conditioning,embed_dim= self.embed_dim, position_ids = position_ids, sentinel_indices = sentinel_indices)
+                # position_embeds_focus = get_paired_position_embedding(embedding = self.wpe, embed_dim= self.embed_dim,position_ids = position_ids, sentinel_indices = sentinel_indices, sequence_type = 'focus')
+                # position_embeds = position_embeds_cond + position_embeds_focus # position_embeds_cond has non zero values till sentinel_index while position_embeds_focuas had non zero values after the index hence we can sume them up
+                
+                hidden_states = inputs_embeds + position_embeds
+            else:
+                position_embeds = self.wpe(position_ids)
+                hidden_states = inputs_embeds + position_embeds
+            print(f'input_ids:',input_ids.shape,input_ids)
+            print(f'position_ids:',position_ids.shape,position_ids)
+            # print(f'position_embeds:',position_embeds.shape,position_embeds)
+            # print(f'input_embeds:',inputs_embeds.shape,inputs_embeds)
+            # print(f'position_embeds:',position_embeds.shape,position_embeds)
+
         elif self.position_embedding in ['rope','rerope','linear_rope_scaling','dynamic_rope_scaling','alibi']:
             hidden_states = inputs_embeds
         else:
             raise Exception(f'invalid {self.position_embedding} provided')
+
+        
 
         if token_type_ids is not None:
             token_type_embeds = self.wte(token_type_ids)
@@ -777,6 +825,7 @@ class APTLMHeadModel(GPT2PreTrainedModel):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
+        sentinel_indices: Optional[torch.LongTensor] = None,
     ) -> Union[Tuple, CausalLMOutputWithCrossAttentions]:
         r"""
         labels (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
@@ -800,6 +849,7 @@ class APTLMHeadModel(GPT2PreTrainedModel):
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
+            sentinel_indices=sentinel_indices,
         )
         hidden_states = transformer_outputs[0]
 
