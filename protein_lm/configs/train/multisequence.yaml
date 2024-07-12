@@ -1,20 +1,23 @@
 # corresponds to DatasetConfig
 dataset:
   dataset_type: "multisequence"
-  dataset_loc: "protein_lm/dataset/multisequence/uniref_toy.csv"
-  mapping_table_loc: ""
+  dataset_loc: "protein_lm/dataset/multisequence/uniref_toy_train.csv"
+  test_dataset_loc: "protein_lm/dataset/multisequence/uniref_toy_test.csv"
+  val_dataset_loc: "protein_lm/dataset/multisequence/uniref_toy_val.csv"
+  cluster_loc: ""
   split_seed: 2
   subsample_size: 1.0 # 100% of complete set,this parameter can also be a number
   val_size: 0.1 # 10% of complete set, this parameter can also be a number
   test_size: 0.2 # 20% of complete set, this parameter can also be a number
+  index_column_name: "index" # since we will be using an Iterable Dataset with samples spanning multiple workers, we need to
   sequence_column_name: "sequence"
   cond_sequence_column_names: 
   - "UniRef50_clust_str"
   - "UniRef90_clust_str"
-  focus_sequence_column_name: "U100"
-  max_cond_sequence_length: 10
-  max_focus_sequence_length: 10
-  max_sequence_length: 20 # has to be greater than or equal sum(max_cond_sequence_length,max_focus_sequence_length)
+  focus_sequence_column_name: "U100"  
+  max_cond_sequence_length: 100
+  max_focus_sequence_length: 100
+  max_sequence_length: 200 # has to be greater than or equal sum(max_cond_sequence_length,max_focus_sequence_length)
 
 
 
@@ -32,6 +35,7 @@ training_arguments:
   save_strategy: "steps"
   evaluation_strategy: "steps"
   per_device_train_batch_size: 3
+  per_device_eval_batch_size: 3
   save_steps: 1
   eval_steps: 5
   report_to: "none"
@@ -52,12 +56,14 @@ tokenizer:
 model:
   nn_model_type: "APT"
   nn_model_config_args:
-    position_embedding: "learned"
+    position_embedding: "alibi"
+    position_embedding_type: 'separate_condition_and_focus_position_embeddings'
     rope_scaling_factor: 1.0
     rope_theta: 10000
-    max_sequence_length: 14 # atleast 2 * n + 4
-    attn_type: 'pairwise'
-    position_embedding_type: 'separate_condition_and_focus_position_embeddings'
+    max_cond_sequence_length: 100
+    max_focus_sequence_length: 100
+    max_sequence_length: 200 # has to be greater than or equal sum(max_cond_sequence_length,max_focus_sequence_length)
+    attn_type: 'standard'
   pretrained_checkpoint: null
 
 # corresponds to DataCollatorConfig

@@ -94,31 +94,43 @@ class Tokenizer:
         max_focus_sequence_length: Optional[int] = None,
         max_sequence_length: Optional[int] = None,
     ) -> List[int]:
-        print(f"""INFO: encode_multisequence:  cond_sequence:{cond_sequence},
-        focus_sequence:{focus_sequence}, 
-        cond_sequence_cluster:{cond_sequence_cluster},
-        focus_sequence_cluster:{focus_sequence_cluster},
-        decoding_order:{decoding_order},
-        add_special_tokens:{add_special_tokens}
-        return_tensor:{return_tensor}
-        max_cond_sequence_length:{max_cond_sequence_length}
-        max_focus_sequence_length:{max_focus_sequence_length}
-        max_sequence_length:{max_sequence_length}""")
+        # print(f"""INFO: encode_multisequence:  
+        # cond_sequence:{cond_sequence},
+        # focus_sequence:{focus_sequence}, 
+        # cond_sequence_cluster:{cond_sequence_cluster},
+        # focus_sequence_cluster:{focus_sequence_cluster},
+        # decoding_order:{decoding_order},
+        # add_special_tokens:{add_special_tokens}
+        # return_tensor:{return_tensor}
+        # max_cond_sequence_length:{max_cond_sequence_length}
+        # max_focus_sequence_length:{max_focus_sequence_length}
+        # max_sequence_length:{max_sequence_length}""")
+        # c,f = len(cond_sequence),len(focus_sequence)
+        # if c and not len(cond_sequence_cluster):
+        #     print(f'WARNING CLUSTER: condition sequence provide but not cluster')
+        # print(f'INFO: len(condition_sequence): {c} len(focus_sequence): {f}')
         sequence = ""
         if max_cond_sequence_length is not None:
             if add_special_tokens:
-                max_cond_sequence_length -= 2
+                #ensure consideration of sentinel tokens
+                max_cond_sequence_length -= 2 #4 tokens:<boc><eoc>
             cond_sequence = cond_sequence[:max_cond_sequence_length]
         
         if max_focus_sequence_length is not None:
             if add_special_tokens:
-                max_focus_sequence_length -= 2
+                #ensure consideration of sentinel tokens
+                if decoding_order in ['mo','fim']:
+                    max_focus_sequence_length -= 4 #6 tokens:<bf-mo-l>,<bf-mo-m>,<bf-mo-r>,<eof>
+                else:
+                    max_focus_sequence_length -= 2 # 4 tokens:<bof><eof>
+                    
             focus_sequence = focus_sequence[:max_focus_sequence_length]
-
+        # print(f'INFO:cond_sequence[:max_cond_sequence_length]->cond_sequence[:{max_cond_sequence_length}]={cond_sequence}')
+        # print(f'INFO:focus_sequence[:max_focus_sequence_length]->focus_sequence[:{max_focus_sequence_length}]={focus_sequence}')
         c,f = len(cond_sequence),len(focus_sequence)
         if max_cond_sequence_length < c or max_focus_sequence_length < f:
             print(f'WARNING: one of condition or focus sequence has been specified a maximum length smaller than actual sequence length')
-        cond_pad_length = max_cond_sequence_length - c - 2 #subtracting the two start and end tokens
+        cond_pad_length = max_cond_sequence_length - c #unused tokens
         cond_pad_sequence = "".join(["<pad>" for i in range(cond_pad_length)])
         
         if add_special_tokens:
@@ -128,11 +140,14 @@ class Tokenizer:
             cond_modified_sequence = ''
             focus_modified_sequence = ''
             for check in cluster_checks:
+                print(f'INFO:cluster_check:{check} cond_sequence_cluster:{cond_sequence_cluster} focus_sequence_cluster:{focus_sequence_cluster} decoding_order:{decoding_order} cond_sequence:{cond_sequence} focus_sequence:{focus_sequence}')
+
                 if c > 0 : # condition sequence exists
                     if check in cond_sequence_cluster:
-                        cond_start_token = [t for t in self.tokens_dictionary['cond_start_tokens'] if check in cond_sequence_cluster][0]
+                        cond_start_token = [t for t in self.tokens_dictionary['cond_start_tokens'] if check in t][0]
                         cond_end_token = self.tokens_dictionary['cond_end_tokens'][0]
                         cond_modified_sequence = cond_start_token + cond_sequence  + cond_end_token + cond_pad_sequence
+                        # print(f'INFO:condition_check:{check} decoding_order:{decoding_order} cond_modified_sequence:{cond_modified_sequence}')
                 if f > 0: #focus sequence exists
                     if check in focus_sequence_cluster:
                         focus_end_token = self.tokens_dictionary['focus_end_tokens'][0]
@@ -142,49 +157,51 @@ class Tokenizer:
                                                       "fim":self.encode_fim(focus_sequence)
                         }
                         if decoding_order in ['mo','fim']:
-                            focus_pad_length = max_focus_sequence_length - f - 2  - 4  #subtracting the two cond start and end tokens and prefix,middle and suffix tokens and one focus end token
-                            focus_pad_sequence =  "".join([self.pad_token_id for i in range(focus_pad_length)])
+                            focus_pad_length = max_focus_sequence_length - f   #unused tokens
+                            focus_pad_sequence =  "".join(["<pad>" for i in range(focus_pad_length)])
                             
                             prefix_start_token = [t for t in self.tokens_dictionary['focus_start_tokens'] if check in t and  decoding_order +'-l' in t ][0]
                             middle_start_token = [t for t in self.tokens_dictionary['focus_start_tokens'] if check in t and  decoding_order +'-m' in t ][0]
                             suffix_start_token = [t for t in self.tokens_dictionary['focus_start_tokens'] if check in t and  decoding_order +'-r' in t][0]
-                            print(f'INFO:prefix_start_token:{prefix_start_token} middle_start_token:{middle_start_token} suffix_start_token:{suffix_start_token}')
+                            # print(f'INFO:prefix_start_token:{prefix_start_token} middle_start_token:{middle_start_token} suffix_start_token:{suffix_start_token}')
                             prefix_sequence,middle_sequence,suffix_sequence = decoding_order_to_sequence[decoding_order]
                             focus_modified_sequence =  prefix_start_token + prefix_sequence + middle_start_token + middle_sequence + suffix_start_token + suffix_sequence + focus_end_token + focus_pad_sequence
+                            # print(f'INFO:focus_check:{check} decoding_order:{decoding_order} focus_modified_sequence:{focus_modified_sequence}')
                         else:
-                            focus_pad_length = max_focus_sequence_length - f - 2   #subtracting the two start and end tokens
-                            focus_pad_sequence =  "".join([self.pad_token_id for i in range(focus_pad_length)])
-                            print(f'INFO:check:{check} decoding_order:{decoding_order}')
+                            focus_pad_length = max_focus_sequence_length - f  # unused tokens
+                            focus_pad_sequence =  "".join(["<pad>" for i in range(focus_pad_length)])
+                            # print(f'INFO:check:{check} decoding_order:{decoding_order}')
                             focus_start_token = [t for t in self.tokens_dictionary['focus_start_tokens'] if check in t and  decoding_order  in t][0]
                             focus_sequence = decoding_order_to_sequence[decoding_order]
-                            focus_modified_sequence = focus_start_token + focus_sequence + focus_end_token + focus_pad_sequence 
-            if not len(cond_modified_sequence) and not len(focus_modified_sequence):
-                print(f'WARNING:both cond_modified_sequence:{cond_modified_sequence} focus_modified_sequence:{focus_modified_sequence} are empty')
+                            focus_modified_sequence = focus_start_token + focus_sequence + focus_end_token + focus_pad_sequence
+                            # print(f'INFO:focus_check:{check} decoding_order:{decoding_order} focus_modified_sequence:{focus_modified_sequence}') 
+            # if not len(cond_modified_sequence) and not len(focus_modified_sequence):
+                # print(f'WARNING:both cond_modified_sequence:{cond_modified_sequence} focus_modified_sequence:{focus_modified_sequence} are empty')
 
 
             sequence = cond_modified_sequence + focus_modified_sequence
-            print(f'INFO:cond_modified_sequence:{cond_modified_sequence} focus_modified_sequence:{focus_modified_sequence} sequence:{sequence}')
+            # print(f'INFO:cond_modified_sequence:{cond_modified_sequence} focus_modified_sequence:{focus_modified_sequence} sequence:{sequence}')
                 
         else:
             #special tokens except padding are already added
             sequence = cond_sequence + cond_pad_sequence + focus_sequence + focus_pad_sequence
 
-        print(f'INFO: tokenizing sequence:{sequence}')
+        # print(f'INFO: tokenizing sequence:{sequence}')
         output = self.trie.tokenize(sequence)
-        print(f'INFO: tokenizing output:{output} len:{len(output)}')
+        # print(f'INFO: tokenizing output:{output} len:{len(output)}')
         o = len(output)
-        print(f'')
+        
         if o < max_sequence_length:
             difference = max_sequence_length - o
-            print(f'WARNING:output:{output} len(output):{o} < max_sequence_length:{max_sequence_length}')      
-            print(f'WARNING:filling difference:{difference} with padding sequence')
+            # print(f'WARNING:output:{output} len(output):{o} < max_sequence_length:{max_sequence_length}')      
+            # print(f'WARNING:filling difference:{difference} with padding sequence')
             padding_sequence = [self.pad_token_id for i in range(difference)]
             output.extend(padding_sequence)
             new_sequence = self.decode(output)
-            print(f'INFO: New Filled sequence:{new_sequence}')
+            # print(f'INFO: New Filled sequence:{new_sequence}')
         print(f'INFO: tokenized ouput:{output} len:{len(output)}')
-        if len(output) > max_sequence_length:
-            print(f'WARNING: tokenized length {len(output)} has exceed maximum length:{max_sequence_length}')
+        # if len(output) > max_sequence_length:
+            # print(f'WARNING: tokenized length {len(output)} has exceed maximum length:{max_sequence_length}')
         if return_tensor:
             output = torch.tensor(output[:max_sequence_length], dtype=torch.long) # need to work to make sure len(output) < max_sequence_length
         return output
@@ -202,13 +219,27 @@ class Tokenizer:
         max_focus_sequence_length: Optional[int] = None,
         max_sequence_length: Optional[int] = None,
     ) -> List[List[int]]:
-
+    #     print(f"""
+    #     batch_encode_multisequence(
+        
+    #     cond_sequences: {cond_sequences},
+    #     focus_sequences: {focus_sequences},
+    #     cond_sequence_clusters: {cond_sequence_clusters},
+    #     focus_sequence_clusters: {focus_sequence_clusters},
+    #     decoding_orders: {decoding_orders},
+    #     add_special_tokens: bool = {add_special_tokens},
+    #     return_tensors: bool = {return_tensors},
+    #     max_cond_sequence_length: Optional[int] = {max_cond_sequence_length},
+    #     max_focus_sequence_length: Optional[int] = {max_focus_sequence_length},
+    #     max_sequence_length: Optional[int] = {max_sequence_length},
+    # )
+    #     """)
         output = []
         sentinel_indices = []
         if max_cond_sequence_length is None and return_tensors:
             max_cond_sequence_length = max([len(sequence) for sequence in cond_sequences])
             if add_special_tokens:
-                max_cond_sequence_length += 2
+                max_cond_sequence_length += 2 #4 tokens:<boc><eoc>
         if max_cond_sequence_length is not None:
             cond_sequences = [
                 sequence[:(max_cond_sequence_length - 2) if add_special_tokens else max_cond_sequence_length] 
@@ -218,46 +249,138 @@ class Tokenizer:
         if max_focus_sequence_length is None and return_tensors:
             max_focus_sequence_length = max([len(sequence) for sequence in focus_sequences])
             if add_special_tokens:
-                max_focus_sequence_length += 2
+                #4 maximum sentinel tokens possible:<bf-mo-l>,<bf-mo-m>,<bf-mo-r>,<eof> for Middle out or FIM, it is posisble there are only two for LR and RL
+                #but we are considering the maximum case below
+                max_focus_sequence_length += 4
+                
+                
         if max_focus_sequence_length is not None:
-            focus_sequences = [
-                sequence[:(max_focus_sequence_length - 2) if add_special_tokens else max_focus_sequence_length] 
-                for sequence in focus_sequences
-            ]
-        
+            for i,sequence in enumerate(focus_sequences):
+                if add_special_tokens:
+                    if decoding_orders[i] in ['mo','fim']:
+                        focus_sequences[i] = sequence[:(max_focus_sequence_length - 4)] # 4 tokens: <bf-mo-l>,<bf-mo-m>,<bf-mo-r>,<eof>,
+                    else:
+                        focus_sequences[i] = sequence[:(max_focus_sequence_length - 2)] #2 tokens: <bof><eof>
+                else:
+                    focus_sequences[i] = sequence[:(max_focus_sequence_length)]
+
+                        
+            
+            
+       
+        eoc_token = self.ids_to_tokens.index("<eoc>")
+        eof_token = self.ids_to_tokens.index("<eof>")
+        prefix_tokens = [self.ids_to_tokens.index(f"<bf-{cluster}-{decoding_order}-{position}>")  for cluster in [30,50,90,100] for decoding_order in ['fim','mo'] for position in ['l'] ]
+        middle_tokens = [self.ids_to_tokens.index(f"<bf-{cluster}-{decoding_order}-{position}>")  for cluster in [30,50,90,100] for decoding_order in ['fim','mo'] for position in ['m'] ]
+        suffix_tokens = [self.ids_to_tokens.index(f"<bf-{cluster}-{decoding_order}-{position}>")  for cluster in [30,50,90,100] for decoding_order in ['fim','mo'] for position in ['r'] ]
         
         for i in range(len(cond_sequences)):
-            tokenized_sequence = self.encode_multisequence(cond_sequences[i],focus_sequences[i],cond_sequence_clusters[i],focus_sequence_clusters[i],decoding_orders[i], add_special_tokens, return_tensors,max_cond_sequence_length,max_focus_sequence_length,max_sequence_length)
-            indices = [0,0,0,0] # cond_padding_start,cond_padding_end,focus_padding_start,focus_padding_end
-            if return_tensors:
-                try:
-                    indices[0] = tokenized_sequence == (self.ids_to_tokens.index("<eoc>")).nonzero().item()
-                    indices[1] = max_cond_sequence_length - 1
-                except:
-                    sentinel_index = 0    
-                
-                try:
-                    indices[2] = tokenized_sequence == (self.ids_to_tokens.index("<eof>")).nonzero().item()
-                    indices[3] = max_focus_sequence_length - 1
-                except:
-                    sentinel_index_focus = 0
-            else:
-                try:
-                    indices[2] = tokenized_sequence.index(self.ids_to_tokens.index("<eof>"))
-                    indices[3] = max_focus_sequence_length - 1
-                except:
-                    sentinel_index_focus = 0
-                
-                try:
-                    indices[2] = tokenized_sequence.index(self.ids_to_tokens.index("<eof>"))
-                    indices[3] = max_focus_sequence_length - 1
-                except:
-                    sentinel_index_focus = 0
+            # print(f"""
+            # INFO:tokenization #{i}:cond_sequences[i]={cond_sequences[i]},focus_sequences[i]={focus_sequences[i]},
+            # cond_sequence_clusters[i]={cond_sequence_clusters[i]},focus_sequence_clusters[i]={focus_sequence_clusters[i]},
+            # decoding_orders[i]={decoding_orders[i]}, add_special_tokens={add_special_tokens}, 
+            # return_tensors={return_tensors},max_cond_sequence_length={max_cond_sequence_length},max_focus_sequence_length={max_focus_sequence_length},
+            # max_sequence_length={max_sequence_length}
+            # """)
+            
+            
 
+            tokenized_sequence = self.encode_multisequence(cond_sequences[i],focus_sequences[i],cond_sequence_clusters[i],focus_sequence_clusters[i],decoding_orders[i], add_special_tokens, return_tensors,max_cond_sequence_length,max_focus_sequence_length,max_sequence_length)
+            tokenized_sequence_decoded = self.decode(tokenized_sequence)
+            prefix_token = [token for token in tokenized_sequence if token in prefix_tokens]
+            middle_token = [token for token in tokenized_sequence if token in middle_tokens]
+            suffix_token = [token for token in tokenized_sequence if token in suffix_tokens]
+            print(f'focus_sequence:{focus_sequences[i]}->prefix_token:{prefix_token} middle_token:{middle_token} suffix_token:{suffix_token}')
+            prefix_token = prefix_token[0] if len(prefix_token) else None
+            middle_token = middle_token[0] if len(middle_token) else None
+            suffix_token = suffix_token[0] if len(suffix_token) else None
+            print(f'INFO:tokenized_sequence:{tokenized_sequence_decoded} from condition:{cond_sequences[i]} focus:{focus_sequences[i]}')
+            # print(f'INFO: eoc_token:{eoc_token} eof_token:{eof_token}')
+            indices = [0,0,0,0,0,0,0] # cond_padding_start,cond_padding_end,focus_padding_start,focus_padding_end,prefix_start,middle_start,suffix_start
+            if return_tensors:
+                if len(cond_sequences[i]):
+                    try:
+                        indices[0] = (tokenized_sequence == eoc_token).nonzero().item()
+                        indices[1] = max_cond_sequence_length
+                    except Exception as e:
+                        print(f'EXCEPTION:<eoc> tensor indices:{indices} {e}')
+                        sentinel_index = 0    
+                if len(focus_sequences[i]):    
+                    try:
+                        indices[2] = (tokenized_sequence == eof_token ).nonzero().item()
+                        indices[3] = max_sequence_length 
+                        
+                    except Exception as e:
+                        print(f'EXCEPTION:<eof> tensor indices:{indices} {e}')
+                        sentinel_index_focus = 0
+                
+                if prefix_token:
+                    try:
+                        indices[4] = (tokenized_sequence == prefix_token ).nonzero().item()
+                        
+                    except Exception as e:
+                        print(f'EXCEPTION:<prefix> tensor indices:{indices} {e}')
+                        sentinel_index_prefix = 0
+                if middle_token:
+                    try:
+                        indices[5] = (tokenized_sequence == middle_token ).nonzero().item()
+                        
+                    except Exception as e:
+                        print(f'EXCEPTION:<middle> tensor indices:{indices} {e}')
+                        sentinel_index_middle = 0
+                if suffix_token:
+                    try:
+                        indices[6] = (tokenized_sequence == suffix_token ).nonzero().item()
+                        
+                    except Exception as e:
+                        print(f'EXCEPTION:<suffix> tensor indices:{indices} {e}')
+                        sentinel_index_suffix = 0
+
+            else:
+                if len(cond_sequences[i]):
+                    try:
+                        indices[0] = tokenized_sequence.index(eoc_token)
+                        indices[1] = max_cond_sequence_length 
+                    except Exception as e:
+                        print(f'EXCEPTION:<eoc> list indices:{indices} {e}')
+                        sentinel_index = 0
+                 
+                if len(focus_sequences[i]):
+                    try:
+                        indices[2] = tokenized_sequence.index(eof_token)
+                        indices[3] = max_sequence_length
+                    except Exception as e:
+                        print(f'EXCEPTION:<eof> list indices:{indices} {e}')
+                        sentinel_index_focus = 0
+                
+                if prefix_token:
+                    try:
+                        indices[4] = tokenized_sequence.index(prefix_token)
+                    except Exception as e:
+                        print(f'EXCEPTION:<prefix> tensor indices:{indices} {e}')
+                        sentinel_index_prefix = 0
+                
+                if middle_token:
+                    try:
+                        indices[5] = tokenized_sequence.index(middle_token)
+                        
+                    except Exception as e:
+                        print(f'EXCEPTION:<middle> tensor indices:{indices} {e}')
+                        sentinel_index_middle = 0
+                
+                if suffix_token:
+                    try:
+                        indices[6] = tokenized_sequence.index(suffix_token)
+                        
+                    except Exception as e:
+                        print(f'EXCEPTION:<suffix> tensor indices:{indices} {e}')
+                        sentinel_index_suffix = 0
+                
+            print(f'INFO: sentinel_indices:{indices}')
             output.append(tokenized_sequence)            
-            sentinel_indices.append(indices)#passing the start & end of the padding region basically
+            sentinel_indices.append(indices)
         if return_tensors:
-            tensor_out = torch.full((len(output), max_cond_sequence_length + max_focus_sequence_length), self.pad_token_id)
+            tensor_out = torch.full((len(output),max_sequence_length), self.pad_token_id)
             for i, sequence in enumerate(output):
                 tensor_out[i, :len(sequence)] = sequence
             output = tensor_out
@@ -268,20 +391,24 @@ class Tokenizer:
         s = len(sequence)
         
         print(f'INFO:FIM:sequence:{sequence} sequence_length:{s}')
-        indices = list(range(s))
-        li,ui = int(0.2 * s),int(0.8 * s)
-        ll,ul = max(int(0.02 * s), 1), int(0.5 * s)
+        prefix_sequence = ''
+        middle_sequence = ''
+        suffix_sequence = ''
+        iteration = 0
+        while not prefix_sequence and not middle_sequence and not suffix_sequence: #ensure no part is empty
+            iteration +=1
+            print(f'INFO:FIM:iteration # {iteration} for FIM')
+            feasible_middle_indices = list(range(int(0.2 * s),int(0.8 * s))) #ensure the start of middle index will be atleast between the middle 60% (after the first 20% tokens and before last 20% tokens ) e.g <20%>|<60%>|<20%>
+            feasible_middle_lengths = list(range(max(int(0.02 * s), 1), int(0.5 * s))) #length can be only betwee 2% of sequence_length or 1 and 50% of sequence 
+            print(f'INFO:FIM:feasible_middle_indices:{feasible_middle_indices} feasible_middle_lengths:{feasible_middle_lengths}')
+            middle_index =  np.random.choice(feasible_middle_indices) # randomly pick a middle index
+            middle_length =  np.random.choice(feasible_middle_lengths) # randomly pick length of middle region
+            print(f'INFO:FIM:middle_index:{middle_index} middle_length:{middle_length}')
+            prefix_sequence = sequence[:middle_index]
+            middle_sequence = sequence[middle_index:middle_index + middle_length]
+            suffix_sequence = sequence[middle_index + middle_length:]
         
-        feasible_middle_indices = list(range(int(0.2 * s),int(0.8 * s))) #ensure the start of middle index will be atleast between the middle 60% (after the first 20% tokens and before last 20% tokens ) e.g <20%>|<60%>|<20%>
-        feasible_middle_lengths = list(range(max(int(0.02 * s), 1), int(0.5 * s))) #length can be only betwee 2% of sequence_length or 1 and 50% of sequence 
-        print(f'INFO:feasible_middle_indices:{feasible_middle_indices} feasible_middle_lengths:{feasible_middle_lengths}')
-        middle_index =  np.random.choice(feasible_middle_indices) # randomly pick a middle index
-        middle_length =  np.random.choice(feasible_middle_lengths) # randomly pick length of middle region
-        print(f'INFO:middle_index:{middle_index} middle_length:{middle_length}')
-        prefix_sequence = sequence[:middle_index]
-        middle_sequence = sequence[middle_index:middle_index + middle_length]
-        suffix_sequence = sequence[middle_index + middle_length:]
-        print(f'INFO:prefix_sequence:{prefix_sequence} middle_sequence:{middle_sequence} suffix_sequence:{suffix_sequence}')
+        print(f'INFO:FIM:prefix_sequence:{prefix_sequence} middle_sequence:{middle_sequence} suffix_sequence:{suffix_sequence}')
 
         return prefix_sequence,middle_sequence,suffix_sequence
 
@@ -289,22 +416,24 @@ class Tokenizer:
         #expect a pure sequence without padding/sentinel tokens
         s = len(sequence)
         print(f'INFO:MO:sequence:{sequence} sequence_length:{s}')
-        indices = list(range(s))
-        li,ui = int(0.2 * s),int(0.8 * s)
-        ll,ul = max(int(0.2 * s), 1), int(0.5 * s)
-        print(f'feasible_middle_indices:{li} ->{ui} feasible_middle_lengths:{ll}->{ul}')
-        
-        feasible_middle_indices = list(range(int(0.2 * s),int(0.8 * s))) #ensure the start of middle index will be atleast between the middle 60% (after the first 20% tokens and before last 20% tokens ) e.g <20%>|<60%>|<20%>
-        #considering a slightly longer middle length here since we will be predicting both prefix and suffix regions
-        feasible_middle_lengths = list(range(max(int(0.2 * s), 1), int(0.5 * s))) #length can be only betwee 20% of sequence_length or 1 and 50% of sequence 
-        print(f'INFO:feasible_middle_indices:{feasible_middle_indices} feasible_middle_lengths:{feasible_middle_lengths}')
-        middle_index =  np.random.choice(feasible_middle_indices) # randomly pick a middle index
-        middle_length =  np.random.choice(feasible_middle_lengths) # randomly pick length of middle region
-        print(f'INFO:middle_index:{middle_index} middle_length:{middle_length}')
-        prefix_sequence = sequence[:middle_index]
-        middle_sequence = sequence[middle_index:middle_index + middle_length]
-        suffix_sequence = sequence[middle_index + middle_length:]
-        print(f'INFO:prefix_sequence:{prefix_sequence} middle_sequence:{middle_sequence} suffix_sequence:{suffix_sequence}')
+        prefix_sequence = ''
+        middle_sequence = ''
+        suffix_sequence = ''
+        iteration  = 0
+        while not prefix_sequence and not middle_sequence and not suffix_sequence:  #ensure no part is empty
+            iteration +=1
+            print(f'INFO:MOiteration # {iteration} for MO')
+            feasible_middle_indices = list(range(int(0.2 * s),int(0.8 * s))) #ensure the start of middle index will be atleast between the middle 60% (after the first 20% tokens and before last 20% tokens ) e.g <20%>|<60%>|<20%>
+            #considering a slightly longer middle length here since we will be predicting both prefix and suffix regions
+            feasible_middle_lengths = list(range(max(int(0.2 * s), 1), int(0.5 * s))) #length can be only betwee 20% of sequence_length or 1 and 50% of sequence 
+            print(f'INFO:MO:feasible_middle_indices:{feasible_middle_indices} feasible_middle_lengths:{feasible_middle_lengths}')
+            middle_index =  np.random.choice(feasible_middle_indices) # randomly pick a middle index
+            middle_length =  np.random.choice(feasible_middle_lengths) # randomly pick length of middle region
+            print(f'INFO:MO:middle_index:{middle_index} middle_length:{middle_length}')
+            prefix_sequence = sequence[:middle_index]
+            middle_sequence = sequence[middle_index:middle_index + middle_length]
+            suffix_sequence = sequence[middle_index + middle_length:]
+        print(f'INFO MO::prefix_sequence:{prefix_sequence} middle_sequence:{middle_sequence} suffix_sequence:{suffix_sequence}')
         return prefix_sequence,middle_sequence,suffix_sequence
 
     def decode(self, tokens: List[int]) -> str:

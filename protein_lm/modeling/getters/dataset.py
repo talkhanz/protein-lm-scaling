@@ -1,11 +1,11 @@
 from typing import Dict, Literal, Optional,Union
 
-from datasets import Dataset, load_dataset
-from datasets.dataset_dict import DatasetDict
+from datasets import Dataset, load_dataset,IterableDataset
+from datasets.dataset_dict import DatasetDict,IterableDatasetDict
 from pydantic import BaseModel
 
 from protein_lm.dataset.cluster_dataset import ClusterDataset
-from protein_lm.dataset.multisequence_dataset import MutliSequenceDataset
+from protein_lm.dataset.multisequence_dataset import MutliSequenceIterableDataset
 
 
 import torch
@@ -14,10 +14,11 @@ class DatasetConfig(BaseModel):
 
     # The path if local or the huggingface dataset name if huggingface
     dataset_loc: str
+    test_dataset_loc: str
+    val_dataset_loc: str
 
     #This is cluster_table for ClusterDataset when dataset_type is colabfold
     cluster_loc: Optional[str] = None
-    mapping_table_loc: Optional[str] = None
 
     # sample size to limit to, if any, usually for debugging
     subsample_size: Optional[Union[int,float]] = None
@@ -35,8 +36,11 @@ class DatasetConfig(BaseModel):
 
     # name of the column that contains the sequence
     sequence_column_name: str
+    index_column_name: Optional[str] = None
     cond_sequence_column_names: Optional[list] = None
     focus_sequence_column_name: Optional[str] = None
+    pair_prob: Optional[str] = None
+   
 
     max_cond_sequence_length: Optional[int] = None
     max_focus_sequence_length: Optional[int] = None
@@ -73,18 +77,13 @@ def set_input_ids(
         result['sentinel_indices'] = sentinel_indices
     
     else:
-        first_seq = list(result[sequence_column_name])[0]
-        len_first = len(first_seq) 
-        print('result:',len_first,first_seq)
         result["input_ids"] = tokenizer(
             result[sequence_column_name],
             max_sequence_length=max_sequence_length,
             add_special_tokens=True,
             return_tensors=True,
         )
-    first_tokenized = list(result['input_ids'])[0]
-    num1s = sum([int(a) == 1 for a in first_tokenized])
-    print('seqs_tokenized:',len(first_tokenized) - num1s,first_tokenized)
+   
     return result
 
 def batch_set_curriculum_learning_column(
@@ -205,27 +204,73 @@ def get_colabfold_dataset(config:DatasetConfig) -> Dataset:
 def get_multisequence_dataset(config:DatasetConfig) -> Dataset:
     exception_msg = f"sum of maximum condition sequence length {config.max_cond_sequence_length} and maximum focus sequence length {config.max_focus_sequence_length} is greater than maximum_sequence_length:{config.max_sequence_length}"
     assert config.max_cond_sequence_length + config.max_focus_sequence_length <= config.max_sequence_length,exception_msg
-    torch_ds = MutliSequenceDataset(
-            config.dataset_loc, 
-            config.mapping_table_loc,
+    torch_ds = MutliSequenceIterableDataset(
+            dataset_path=config.dataset_loc, 
+            cluster_table_path = "",
+            index_column = config.index_column_name,
             focus_sequence_column = config.focus_sequence_column_name,
-            condition_sequence_columns = {'u50': config.cond_sequence_column_names[0],'u90':config.cond_sequence_column_names[1]}, 
+            condition_sequence_columns = {"uniref50":config.cond_sequence_column_names[0],"uniref90":config.cond_sequence_column_names[1]}, 
             cond_sequence_length= config.max_cond_sequence_length,
             focus_sequence_length = config.max_focus_sequence_length,
-            pair_prob= 0.7, #probably a sample will have a pair of sequences
-            cluster_prob = {'u50':0.5,'u90': 0.5}, #if a pair is selected, probably of condition sequence per cluster
+            seed=config.split_seed,
+            pair_prob= 0.7 ,#probably a sample will have a pair of sequences
+            cluster_prob = {'uniref50': 0.5,'uniref90':0.5}, #if a pair is selected, probably of condition sequence per cluster
             decoding_order_prob = {'lr': 0.25,'rl': 0.25, 'fim': 0.25,'mo': 0.25}, #independant of paired sequence or singleton
             separator_token=",", #the token which separates the list of sequences in the condition sequence columns
-            seed=config.split_seed  )
+            )
+
+    torch_test_ds = MutliSequenceIterableDataset(
+            dataset_path=config.test_dataset_loc, 
+            cluster_table_path = "",
+            index_column = config.index_column_name,
+            focus_sequence_column = config.focus_sequence_column_name,
+            condition_sequence_columns = {"uniref50":config.cond_sequence_column_names[0],"uniref90":config.cond_sequence_column_names[1]}, 
+            cond_sequence_length= config.max_cond_sequence_length,
+            focus_sequence_length = config.max_focus_sequence_length,
+            seed=config.split_seed,
+            pair_prob= 0.7, #probably a sample will have a pair of sequences
+            cluster_prob ={'uniref50': 0.5,'uniref90':0.5}, #if a pair is selected, probably of condition sequence per cluster
+            decoding_order_prob = {'lr': 0.25,'rl': 0.25, 'fim': 0.25,'mo': 0.25}, #independant of paired sequence or singleton
+            separator_token=",", #the token which separates the list of sequences in the condition sequence columns
+            )
+    
+    torch_val_ds = MutliSequenceIterableDataset(
+            dataset_path=config.val_dataset_loc, 
+            cluster_table_path = "",
+            index_column = config.index_column_name,
+            focus_sequence_column = config.focus_sequence_column_name,
+            condition_sequence_columns = {"uniref50":config.cond_sequence_column_names[0],"uniref90":config.cond_sequence_column_names[1]},
+            cond_sequence_length= config.max_cond_sequence_length,
+            focus_sequence_length = config.max_focus_sequence_length,
+            seed=config.split_seed,
+            pair_prob= 0.7, #probably a sample will have a pair of sequences
+            cluster_prob = {'uniref50': 0.5,'uniref90':0.5}, #if a pair is selected, probably of condition sequence per cluster
+            decoding_order_prob = {'lr': 0.25,'rl': 0.25, 'fim': 0.25,'mo': 0.25}, #independant of paired sequence or singleton
+            separator_token=",", #the token which separates the list of sequences in the condition sequence columns
+            )
+
+    def torch_ds_generator(split = "train"):
+        if split == "train":
+            for item in torch_ds:
+                yield item  # this has to be a dictionary
+        elif split == "test":
+            for item in torch_test_ds:
+                yield item  # this has to be a dictionary
+        elif split == "val":
+            for item in torch_val_ds:
+                yield item  # this has to be a dictionary
+
+    
+        
    
-    def torch_dataset_generator(dataset):
-        pass
-    ds = Dataset.from_list(torch_ds)
-    # ds = ds.with_format("torch")
-    dataset_dict = DatasetDict({"train": ds})
+    train_ds = IterableDataset.from_generator(torch_ds_generator,gen_kwargs={"split": "train"})
+    test_ds = IterableDataset.from_generator(torch_ds_generator,gen_kwargs={"split": "test"})
+    val_ds = IterableDataset.from_generator(torch_ds_generator,gen_kwargs={"split": "val"})
+    
+    # ds = ds.with_format("torch") # converts back to torch dataset
+    dataset_dict = IterableDatasetDict({"train": train_ds,"test": test_ds,"val": val_ds})
     print(f'multisequence:{dataset_dict}') 
-    # ds = DatasetDict({"train":  Dataset.from_generator(ds.__iter__,gen_kwargs={"split": "train"}),"test": Dataset.from_generator(ds.__iter__,gen_kwargs={"split": "test"}),"val":Dataset.from_generator(ds.__iter__,gen_kwargs={"split": "val"})})
-    return train_val_test_split(dataset_dict, config)
+    return dataset_dict
 
 def get_dataset(config_dict: Dict, tokenizer) -> Dataset:
     config = DatasetConfig(**config_dict)

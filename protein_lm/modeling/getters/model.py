@@ -23,7 +23,6 @@ def get_model(config_dict: Dict):
         model_config_constructor = APTConfig
     else:
         raise ValueError(f"Invalid NNModelConfig.nn_model_type {config.nn_model_type}")
-
     model_config = model_config_constructor(**config.nn_model_config_args)
     if config.pretrained_checkpoint is None:
         model = model_constructor(config=model_config)
