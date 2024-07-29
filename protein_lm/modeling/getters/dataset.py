@@ -5,7 +5,7 @@ from datasets.dataset_dict import DatasetDict,IterableDatasetDict
 from pydantic import BaseModel
 
 from protein_lm.dataset.cluster_dataset import ClusterDataset
-from protein_lm.dataset.multisequence_dataset import MutliSequenceIterableDataset
+from protein_lm.dataset.multisequence_dataset import MutliSequenceIterableDataset,MutliSequenceIterableDataset2
 
 
 import torch
@@ -45,6 +45,9 @@ class DatasetConfig(BaseModel):
     max_cond_sequence_length: Optional[int] = None
     max_focus_sequence_length: Optional[int] = None
     max_sequence_length: int = None
+    cond_sequence_mask_fraction: Optional[Union[int,float]] = 0.25
+    focus_sequence_mask_fraction:Optional[Union[int,float]]= 0.0
+    tokenization_strategy: Optional[str] = "precompute"
 
 
 def set_input_ids(
@@ -83,7 +86,8 @@ def set_input_ids(
             add_special_tokens=True,
             return_tensors=True,
         )
-   
+    print('###result#####')
+    print(result)
     return result
 
 def batch_set_curriculum_learning_column(
@@ -201,7 +205,7 @@ def get_colabfold_dataset(config:DatasetConfig) -> Dataset:
     ds = DatasetDict({"train":  Dataset.from_generator(ds.__iter__,gen_kwargs={"split": "train"}),"test": Dataset.from_generator(ds.__iter__,gen_kwargs={"split": "test"}),"val":Dataset.from_generator(ds.__iter__,gen_kwargs={"split": "val"})})
     return ds
 
-def get_multisequence_dataset(config:DatasetConfig) -> Dataset:
+def get_multisequence_dataset(config:DatasetConfig,tokenizer) -> Dataset:
     exception_msg = f"sum of maximum condition sequence length {config.max_cond_sequence_length} and maximum focus sequence length {config.max_focus_sequence_length} is greater than maximum_sequence_length:{config.max_sequence_length}"
     assert config.max_cond_sequence_length + config.max_focus_sequence_length <= config.max_sequence_length,exception_msg
     torch_ds = MutliSequenceIterableDataset(
@@ -209,14 +213,16 @@ def get_multisequence_dataset(config:DatasetConfig) -> Dataset:
             cluster_table_path = "",
             index_column = config.index_column_name,
             focus_sequence_column = config.focus_sequence_column_name,
-            condition_sequence_columns = {"uniref50":config.cond_sequence_column_names[0],"uniref90":config.cond_sequence_column_names[1]}, 
+            condition_sequence_columns = {"uniref30":config.cond_sequence_column_names[0],"uniref50":config.cond_sequence_column_names[1],"uniref90":config.cond_sequence_column_names[2],"struct":config.cond_sequence_column_names[3]}, 
             cond_sequence_length= config.max_cond_sequence_length,
             focus_sequence_length = config.max_focus_sequence_length,
             seed=config.split_seed,
-            pair_prob= 0.7 ,#probably a sample will have a pair of sequences
-            cluster_prob = {'uniref50': 0.5,'uniref90':0.5}, #if a pair is selected, probably of condition sequence per cluster
+            pair_prob= 0.7, #probably a sample will have a pair of sequences
+            cluster_prob ={'uniref30': 0.25,'uniref50': 0.25,'uniref90':0.25,'struct': 0.25}, #if a pair is selected, probably of condition sequence per cluster
             decoding_order_prob = {'lr': 0.25,'rl': 0.25, 'fim': 0.25,'mo': 0.25}, #independant of paired sequence or singleton
-            separator_token=",", #the token which separates the list of sequences in the condition sequence columns
+            separator_token=",", #the token which separates the list of sequences in the condition sequence columns,
+            tokenization_strategy = config.tokenization_strategy,
+            tokenizer = tokenizer,
             )
 
     torch_test_ds = MutliSequenceIterableDataset(
@@ -224,14 +230,16 @@ def get_multisequence_dataset(config:DatasetConfig) -> Dataset:
             cluster_table_path = "",
             index_column = config.index_column_name,
             focus_sequence_column = config.focus_sequence_column_name,
-            condition_sequence_columns = {"uniref50":config.cond_sequence_column_names[0],"uniref90":config.cond_sequence_column_names[1]}, 
+            condition_sequence_columns = {"uniref30":config.cond_sequence_column_names[0],"uniref50":config.cond_sequence_column_names[1],"uniref90":config.cond_sequence_column_names[2],"struct":config.cond_sequence_column_names[3]}, 
             cond_sequence_length= config.max_cond_sequence_length,
             focus_sequence_length = config.max_focus_sequence_length,
             seed=config.split_seed,
             pair_prob= 0.7, #probably a sample will have a pair of sequences
-            cluster_prob ={'uniref50': 0.5,'uniref90':0.5}, #if a pair is selected, probably of condition sequence per cluster
+            cluster_prob ={'uniref30': 0.25,'uniref50': 0.25,'uniref90':0.25,'struct': 0.25}, #if a pair is selected, probably of condition sequence per cluster
             decoding_order_prob = {'lr': 0.25,'rl': 0.25, 'fim': 0.25,'mo': 0.25}, #independant of paired sequence or singleton
             separator_token=",", #the token which separates the list of sequences in the condition sequence columns
+            tokenization_strategy = config.tokenization_strategy,
+            tokenizer = tokenizer,
             )
     
     torch_val_ds = MutliSequenceIterableDataset(
@@ -239,15 +247,18 @@ def get_multisequence_dataset(config:DatasetConfig) -> Dataset:
             cluster_table_path = "",
             index_column = config.index_column_name,
             focus_sequence_column = config.focus_sequence_column_name,
-            condition_sequence_columns = {"uniref50":config.cond_sequence_column_names[0],"uniref90":config.cond_sequence_column_names[1]},
+            condition_sequence_columns = {"uniref30":config.cond_sequence_column_names[0],"uniref50":config.cond_sequence_column_names[1],"uniref90":config.cond_sequence_column_names[2],"struct":config.cond_sequence_column_names[3]}, 
             cond_sequence_length= config.max_cond_sequence_length,
             focus_sequence_length = config.max_focus_sequence_length,
             seed=config.split_seed,
             pair_prob= 0.7, #probably a sample will have a pair of sequences
-            cluster_prob = {'uniref50': 0.5,'uniref90':0.5}, #if a pair is selected, probably of condition sequence per cluster
+            cluster_prob ={'uniref30': 0.25,'uniref50': 0.25,'uniref90':0.25,'struct': 0.25}, #if a pair is selected, probably of condition sequence per cluster
             decoding_order_prob = {'lr': 0.25,'rl': 0.25, 'fim': 0.25,'mo': 0.25}, #independant of paired sequence or singleton
             separator_token=",", #the token which separates the list of sequences in the condition sequence columns
+            tokenization_strategy = config.tokenization_strategy,
+            tokenizer = tokenizer,
             )
+            
 
     def torch_ds_generator(split = "train"):
         if split == "train":
@@ -282,23 +293,23 @@ def get_dataset(config_dict: Dict, tokenizer) -> Dataset:
     elif config.dataset_type == "colabfold":
         train_ds = get_colabfold_dataset(config)
     elif config.dataset_type == "multisequence":
-        train_ds = get_multisequence_dataset(config)
+        train_ds = get_multisequence_dataset(config,tokenizer)
         
     else:
         raise ValueError(f"Invalid dataset_type {config.dataset_type}!")
-        
-    train_ds = train_ds.map(
-            lambda e: set_input_ids(
-                dataset_type = config.dataset_type,
-                result=e,
-                tokenizer=tokenizer,
-                sequence_column_name=config.sequence_column_name,
-                max_cond_sequence_length=config.max_cond_sequence_length,
-                max_focus_sequence_length=config.max_focus_sequence_length,
-                max_sequence_length=config.max_sequence_length,
-            ),
-            batched=True)
-    train_ds = train_ds.map(set_labels, batched=True)
-    print('###get_dataset####')
-    print(train_ds['train'].info)
+    if config.tokenization_strategy == "precompute":    
+        train_ds = train_ds.map(
+                lambda e: set_input_ids(
+                    dataset_type = config.dataset_type,
+                    result=e,
+                    tokenizer=tokenizer,
+                    sequence_column_name=config.sequence_column_name,
+                    max_cond_sequence_length=config.max_cond_sequence_length,
+                    max_focus_sequence_length=config.max_focus_sequence_length,
+                    max_sequence_length=config.max_sequence_length,
+                ),
+                batched=True)
+        train_ds = train_ds.map(set_labels, batched=True)
+        print('###get_dataset####')
+        print(train_ds['train'].info)
     return train_ds

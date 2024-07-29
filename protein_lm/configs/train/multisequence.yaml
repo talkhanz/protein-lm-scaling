@@ -11,13 +11,18 @@ dataset:
   test_size: 0.2 # 20% of complete set, this parameter can also be a number
   index_column_name: "index" # since we will be using an Iterable Dataset with samples spanning multiple workers, we need to
   sequence_column_name: "sequence"
-  cond_sequence_column_names: 
+  cond_sequence_column_names: #the order needs to uniref30,50,90 and then alphafold columns as below
+  - "UniRef30_clust_str" 
   - "UniRef50_clust_str"
   - "UniRef90_clust_str"
+  - "Alphafold_clust_str"
   focus_sequence_column_name: "U100"  
-  max_cond_sequence_length: 100
-  max_focus_sequence_length: 100
-  max_sequence_length: 200 # has to be greater than or equal sum(max_cond_sequence_length,max_focus_sequence_length)
+  max_cond_sequence_length: 64
+  max_focus_sequence_length: 64
+  max_sequence_length: 128 # has to be greater than or equal sum(max_cond_sequence_length,max_focus_sequence_length)
+  cond_sequence_mask_fraction: 0.25
+  focus_sequence_mask_fraction: 0.0
+  tokenization_strategy: "otf" #otf = on the fly, tokenization will happen when a sample is returned from the MultiSequenceIterableClass
 
 
 
@@ -56,13 +61,13 @@ tokenizer:
 model:
   nn_model_type: "APT"
   nn_model_config_args:
-    position_embedding: "alibi"
+    position_embedding: "learned"
     position_embedding_type: 'separate_condition_and_focus_position_embeddings'
     rope_scaling_factor: 1.0
     rope_theta: 10000
-    max_cond_sequence_length: 100
-    max_focus_sequence_length: 100
-    max_sequence_length: 200 # has to be greater than or equal sum(max_cond_sequence_length,max_focus_sequence_length)
+    max_cond_sequence_length: 64
+    max_focus_sequence_length: 64
+    max_sequence_length: 128 # has to be greater than or equal sum(max_cond_sequence_length,max_focus_sequence_length)
     attn_type: 'standard'
   pretrained_checkpoint: null
 

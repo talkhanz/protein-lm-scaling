@@ -14,8 +14,7 @@ from protein_lm.modeling.utils.rerope_embedding import RectifiedRotaryEmbedding
 from protein_lm.modeling.utils.alibi_embedding import create_alibi_tensor,build_alibi_bias
 from protein_lm.modeling.utils.scaled_rope_embedding import LlamaLinearScalingRotaryEmbedding,LlamaDynamicNTKScalingRotaryEmbedding
 from protein_lm.modeling.utils.modules import ContactPredictionHead
-from protein_lm.modeling.utils.paired_embedding import create_paired_position_ids,get_paired_position_embedding,get_paired_hidden_states,get_paired_position_ids
-
+from protein_lm.modeling.utils.paired_embedding import create_paired_position_ids,get_paired_position_embedding,get_paired_hidden_states,get_paired_position_ids,reorder_matrix
 from protein_lm.tokenizer.tokenizer import AptTokenizer
 
 
@@ -67,9 +66,7 @@ class APTAttention(GPT2Attention):
             self.reorder_and_upcast_attn = True
         elif self.attn_type == "standard":
             self.standard_attn = True
-        elif self.attn_type == "pairwise":
-            self.is_cross_attention = False #has to be causal
-            self.pairwise_attn = True
+        
             
 
 
@@ -124,7 +121,7 @@ class APTAttention(GPT2Attention):
             mask_value = torch.full([], mask_value, dtype=attn_weights.dtype).to(attn_weights.device)
             attn_weights = torch.where(causal_mask, attn_weights.to(attn_weights.dtype), mask_value)
         if alibi_bias is not None:
-            print(f'if alibi_bias is not None: attn_weights:{attn_weights.shape} alibi_bias:{alibi_bias.shape}')
+            print(f' _attn:attn_weights:{attn_weights.shape} alibi_bias:{alibi_bias.shape}')
             attn_weights = attn_weights + alibi_bias[:,:,:attn_weights.size(-1)]
         
         if attention_mask is not None:
@@ -145,53 +142,7 @@ class APTAttention(GPT2Attention):
 
         return attn_output, attn_weights
     
-    # def _pairwise_attn(self, query, key, value, attention_mask=None, head_mask=None,alibi_bias=None):
-
-    #     attn_weights = torch.matmul(query, key.transpose(-1, -2))
-    #     mask_value = torch.finfo(attn_weights.dtype).min
-    #     attention_mask = torch.triu(
-    #         torch.zeros_like(attn_weights) + mask_value, diagonal=1
-    #         )
-    #     if self.scale_attn_weights:
-    #         attn_weights = attn_weights / torch.full(
-    #             [], value.size(-1) ** 0.5, dtype=attn_weights.dtype, device=attn_weights.device
-    #         )
-
-    #     # Layer-wise attention scaling
-    #     if self.scale_attn_by_inverse_layer_idx:
-    #         attn_weights = attn_weights / float(self.layer_idx + 1)
-
-    #     if not self.is_cross_attention:
-    #         # if only "normal" attention layer implements causal mask
-    #         query_length, key_length = query.size(-2), key.size(-2)
-    #         # causal_mask = self.bias[:, :, key_length - query_length : key_length, :key_length]
-    #         causal_mask =  ~(attention_mask == mask_value)
-    #         # Need to be a tensor, otherwise we get error: `RuntimeError: expected scalar type float but found double`.
-    #         # Need to be on the same device, otherwise `RuntimeError: ..., x and y to be on the same device`
-    #         mask_value = torch.full([], mask_value, dtype=attn_weights.dtype).to(attn_weights.device)
-    #         attn_weights = torch.where(causal_mask, attn_weights.to(attn_weights.dtype), mask_value)
-        
-    #     if alibi_bias is not None:
-    #         attn_weights = attn_weights + alibi_bias[:,:,:attn_weights.size(-1)]
-        
-    #     if attention_mask is not None:
-    #         # Apply the attention mask
-    #         attn_weights = attn_weights + attention_mask
-        
-        
-    #     attn_weights = nn.functional.softmax(attn_weights, dim=-1)
-
-    #     # Downcast (if necessary) back to V's dtype (if in mixed-precision) -- No-Op otherwise
-    #     attn_weights = attn_weights.type(value.dtype)
-    #     attn_weights = self.attn_dropout(attn_weights)
-
-    #     # Mask heads if we want to
-    #     if head_mask is not None:
-    #         attn_weights = attn_weights * head_mask
-
-    #     attn_output = torch.matmul(attn_weights, value)
-
-    #     return attn_output, attn_weights
+    
 
     def _gqa_attn(self, query, key, value, attention_mask=None, 
                 alibi_bias =None, dropout=0.0):
@@ -346,12 +297,14 @@ class APTAttention(GPT2Attention):
 
     ) -> Tuple[Union[torch.Tensor, Tuple[torch.Tensor]], ...]:
         print(f'Attention(forward)->sentinel_indices:{sentinel_indices}')
-        if attention_mask:
+        if attention_mask is not None:
             print(f'Attention(forward)->attention_mask:{attention_mask.shape}')
         if head_mask:
             print(f'Attention(forward)->head_mask:{head_mask.shape}')
         print(f'Attention(forward)->layer_past:{layer_past}')
-        print(f'Attention(forward)->alibi_bias:{alibi_bias.shape}')
+        if alibi_bias:
+            print(f'Attention(forward)->alibi_bias:{alibi_bias.shape}')
+        has_query_cond = False
         if encoder_hidden_states is not None:
             print(f'encoder_hidden_states:{encoder_hidden_states.shape}')
             print(f'encoder_attention_mask:{encoder_attention_mask.shape}')
@@ -363,8 +316,13 @@ class APTAttention(GPT2Attention):
             if self.position_embedding_type == 'separate_condition_and_focus_position_embeddings':
                 hidden_states_cond,hidden_states_focus = get_paired_hidden_states(hidden_states=hidden_states,sentinel_indices=sentinel_indices)
                 encoder_hidden_states_cond,encoder_hidden_states_focus = get_paired_hidden_states(hidden_states=encoder_hidden_states,sentinel_indices=sentinel_indices)
-                query_cond = self.q_attn(hidden_states_cond)
-                key_cond, value_cond = self.c_attn(encoder_hidden_states_cond).split(self.split_size, dim=2)
+                
+                if hidden_states_cond.shape[1]:
+                    query_cond = self.q_attn(hidden_states_cond)
+                    key_cond, value_cond = self.c_attn(encoder_hidden_states_cond).split(self.split_size, dim=2)
+                    has_query_cond = True
+            
+                    
                 query_focus = self.q_attn(hidden_states_focus)
                 key_focus, value_focus = self.c_attn(encoder_hidden_states_focus).split(self.split_size, dim=2)
                 attention_mask = encoder_attention_mask
@@ -375,16 +333,20 @@ class APTAttention(GPT2Attention):
         else:
             if self.position_embedding_type == 'separate_condition_and_focus_position_embeddings':
                 hidden_states_cond,hidden_states_focus = get_paired_hidden_states(hidden_states=hidden_states,sentinel_indices=sentinel_indices)
-                query_cond, key_cond, value_cond = self.c_attn(hidden_states_cond).split(self.split_size, dim=2)
+                if hidden_states_cond.shape[1]:
+                    query_cond, key_cond, value_cond = self.c_attn(hidden_states_cond).split(self.split_size, dim=2)
+                    has_query_cond = True
+                print(f'has_query_cond:{has_query_cond}')
                 query_focus, key_focus, value_focus = self.c_attn(hidden_states_focus).split(self.split_size, dim=2)
 
             else:
                 query, key, value = self.c_attn(hidden_states).split(self.split_size, dim=2)
 
         if self.position_embedding_type == 'separate_condition_and_focus_position_embeddings':
-            query_cond = self._split_heads(query_cond, self.num_heads, self.head_dim)
-            key_cond = self._split_heads(key_cond, self.num_heads, self.head_dim)
-            value_cond = self._split_heads(value_cond, self.num_heads, self.head_dim)
+            if has_query_cond:
+                query_cond = self._split_heads(query_cond, self.num_heads, self.head_dim)
+                key_cond = self._split_heads(key_cond, self.num_heads, self.head_dim)
+                value_cond = self._split_heads(value_cond, self.num_heads, self.head_dim)
             
             query_focus = self._split_heads(query_focus, self.num_heads, self.head_dim)
             key_focus = self._split_heads(key_focus, self.num_heads, self.head_dim)
@@ -395,12 +357,13 @@ class APTAttention(GPT2Attention):
             value = self._split_heads(value, self.num_heads, self.head_dim)
         
         if self.position_embedding_type == 'separate_condition_and_focus_position_embeddings':
-            kv_seq_len_cond = key_cond.shape[-2]
+            if has_query_cond:
+                kv_seq_len_cond = key_cond.shape[-2]
             if layer_past is not None:
                 past_key_cond,past_key_focus = get_paired_hidden_states(hidden_states=layer_past[0],sentinel_indices=sentinel_indices)
                 past_value_cond,past_value_focus = get_paired_hidden_states(hidden_states=layer_past[1],sentinel_indices=sentinel_indices)
-                
-                kv_seq_len_cond+=past_key_cond.shape[-2]
+                if past_key_cond.shape[1]:
+                    kv_seq_len_cond+=past_key_cond.shape[-2]
                 kv_seq_len_focus+=past_key_focus.shape[-2]
         else:
             kv_seq_len = key.shape[-2]
@@ -412,12 +375,18 @@ class APTAttention(GPT2Attention):
             bsz, q_len, _ = hidden_states.size()
             if self.position_embedding == 'rope':
                 if self.position_embedding_type == 'separate_condition_and_focus_position_embeddings':
-                    query_cond, key_cond = self.rot_emb(query_cond,key_cond)
+                    if has_query_cond:
+                        query_cond, key_cond = self.rot_emb(query_cond,key_cond)
                     query_focus, key_focus = self.rot_emb(query_focus,key_focus)
+                    if has_query_cond:
+                        query = torch.cat((query_cond, query_focus), dim=-2)
+                        key = torch.cat((key_cond, key_focus), dim=-2)
+                        value = torch.cat((value_cond, value_focus), dim=-2)
+                    else:
+                        query = query_focus
+                        key = key_focus
+                        value = value_focus
 
-                    query = torch.cat((query_cond, query_focus), dim=-2)
-                    key = torch.cat((key_cond, key_focus), dim=-2)
-                    value = torch.cat((value_cond, value_focus), dim=-2)
                 else:
                     query, key = self.rot_emb(query,key)
             elif self.position_embedding == 'rerope':
@@ -425,66 +394,93 @@ class APTAttention(GPT2Attention):
                     bsz_cond, q_len_cond, _ = hidden_states_cond.size()
                     bsz_focus, q_len_focus, _ = hidden_states_focus.size()
                     position_ids_cond,position_ids_focus = get_paired_position_ids(position_ids=position_ids, sentinel_indices=sentinel_indices)
-                    
-                    query_cond = query_cond.reshape(bsz_cond, q_len_cond, self.num_heads, self.head_dim).transpose(1, 2)
-                    query_cond *= ((position_ids_cond + 1)[:, None, :, None].log() / torch.log(torch.tensor(self.max_cond_sequence_length)).item()).clip(1).to(query_cond.dtype)
-                    query_cond, key_cond = self.rot_emb(query_cond,key_cond,seq_len = self.max_cond_sequence_length,position_ids=position_ids_cond)
+                    if has_query_cond:
+                        query_cond = query_cond.reshape(bsz_cond, q_len_cond, self.num_heads, self.head_dim).transpose(1, 2)
+                        query_cond *= ((position_ids_cond + 1)[:, None, :, None].log() / torch.log(torch.tensor(self.max_cond_sequence_length)).item()).clip(1).to(query_cond.dtype)
+                        query_cond, key_cond = self.rot_emb(query_cond,key_cond,seq_len = self.max_cond_sequence_length,position_ids=position_ids_cond)
                     
                     query_focus = query_focus.reshape(bsz_focus, q_len_focus, self.num_heads, self.head_dim).transpose(1, 2)
                     query_focus *= ((position_ids_focus + 1)[:, None, :, None].log() / torch.log(torch.tensor(self.max_focus_sequence_length)).item()).clip(1).to(query_focus.dtype)
                     query_focus, key_focus = self.rot_emb(query_focus,key_focus,seq_len = self.max_focus_sequence_length,position_ids=position_ids_focus)
                     
-                    query = torch.cat((query_cond, query_focus), dim=-2)
-                    key = torch.cat((key_cond, key_focus), dim=-2)
-                    value = torch.cat((value_cond, value_focus), dim=-2)
+                    if has_query_cond:
+                        query = torch.cat((query_cond, query_focus), dim=-2)
+                        key = torch.cat((key_cond, key_focus), dim=-2)
+                        value = torch.cat((value_cond, value_focus), dim=-2)
+                    else:
+                        query = query_focus
+                        key = key_focus
+                        value = value_focus
                 else:
                     query = query.reshape(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
                     query *= ((position_ids + 1)[:, None, :, None].log() / torch.log(torch.tensor(self.max_sequence_length)).item()).clip(1).to(query.dtype)
                     query, key = self.rot_emb(query,key,seq_len = self.max_sequence_length,position_ids=position_ids)
             elif self.position_embedding in ["linear_rope_scaling","dynamic_rope_scaling"]:
                 if self.position_embedding_type == 'separate_condition_and_focus_position_embeddings':
-                    query_cond = query_cond.reshape(bsz_cond, q_len_cond, self.num_heads, self.head_dim).transpose(1, 2)
-                    query_cond, key_cond = self.rot_emb(query_cond, key_cond, seq_len=kv_seq_len_cond,position_ids=position_ids_cond)
+                    if has_query_cond:
+                        query_cond = query_cond.reshape(bsz_cond, q_len_cond, self.num_heads, self.head_dim).transpose(1, 2)
+                        query_cond, key_cond = self.rot_emb(query_cond, key_cond, seq_len=kv_seq_len_cond,position_ids=position_ids_cond)
                     query_focus = query_focus.reshape(bsz_focus, q_len_focus, self.num_heads, self.head_dim).transpose(1, 2)
-                    query_cond, key_cond = self.rot_emb(query_focus, key_focus, seq_len=kv_seq_len_focus,position_ids=position_ids_focus)
+                    query_focus, key_focus = self.rot_emb(query_focus, key_focus, seq_len=kv_seq_len_focus,position_ids=position_ids_focus)
                     
-                    query = torch.cat((query_cond, query_focus), dim=-2)
-                    key = torch.cat((key_cond, key_focus), dim=-2)
-                    value = torch.cat((value_cond, value_focus), dim=-2)
+                    if has_query_cond:
+                        query = torch.cat((query_cond, query_focus), dim=-2)
+                        key = torch.cat((key_cond, key_focus), dim=-2)
+                        value = torch.cat((value_cond, value_focus), dim=-2)
+                    else:
+                        query = query_focus
+                        key = key_focus
+                        value = value_focus
                 else:
                     query = query.reshape(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
                     query, key = self.rot_emb(query, key, seq_len=kv_seq_len,position_ids=position_ids)
         else:
             if self.position_embedding_type == 'separate_condition_and_focus_position_embeddings':
-                query = torch.cat((query_cond, query_focus), dim=-2)
-                key = torch.cat((key_cond, key_focus), dim=-2)
-                value = torch.cat((value_cond, value_focus), dim=-2)
+                if has_query_cond:
+                    query = torch.cat((query_cond, query_focus), dim=-2)
+                    key = torch.cat((key_cond, key_focus), dim=-2)
+                    value = torch.cat((value_cond, value_focus), dim=-2)
+                else:
+                    query = query_focus
+                    key = key_focus
+                    value = value_focus
 
         
         if layer_past is not None:
             if self.position_embedding_type == 'separate_condition_and_focus_position_embeddings':
-                key_cond = torch.cat((past_key_cond, key_cond), dim=-2)
-                value_cond = torch.cat((past_value_cond, value_cond), dim=-2)
-                
+                if past_key_cond.shape[1]: #if the condition sequence exists
+                    key_cond = torch.cat((past_key_cond, key_cond), dim=-2)
+                    value_cond = torch.cat((past_value_cond, value_cond), dim=-2)
+                    
                 key_focus = torch.cat((past_key_focus, key_focus), dim=-2)
                 value_focus = torch.cat((past_value_cond, value_focus), dim=-2)
 
                 # query = torch.cat((query_cond, query_focus), dim=-2) #already computed previously
-                key = torch.cat((key_cond, key_focus), dim=-2)
-                value = torch.cat((value_cond, value_focus), dim=-2)
+                if past_key_cond.shape[1]:
+                    key = torch.cat((key_cond, key_focus), dim=-2)
+                    value = torch.cat((value_cond, value_focus), dim=-2)
+                else:
+                    key = key_focus
+                    value = value_focus
             else:
                 past_key, past_value = layer_past
                 key = torch.cat((past_key, key), dim=-2)
                 value = torch.cat((past_value, value), dim=-2)
         else:
-            
-            key = torch.cat((key_cond, key_focus), dim=-2)
-            value = torch.cat((value_cond, value_focus), dim=-2)
+            if self.position_embedding_type == 'separate_condition_and_focus_position_embeddings':
+                if has_query_cond:
+                    key = torch.cat((key_cond, key_focus), dim=-2)
+                    value = torch.cat((value_cond, value_focus), dim=-2)
+                else:
+                    key = key_focus
+                    value = value_focus
+
 
         if self.position_embedding_type == 'separate_condition_and_focus_position_embeddings':
-        #     print(f'just_before_use_cache->query_cond:{query_cond.shape} key_cond:{key_cond.shape} value_cond:{value_cond.shape}')
-        #     print(f'just_before_use_cache->query_focus:{query_focus.shape} key_focus:{key_focus.shape} value_focus:{value_focus.shape}')
-        # print(f'just_before_use_cache->query:{query.shape}  key:{key.shape} value:{value.shape}')
+            if has_query_cond:
+                print(f'just_before_use_cache->query_cond:{query_cond.shape} key_cond:{key_cond.shape} value_cond:{value_cond.shape}')
+            print(f'just_before_use_cache->query_focus:{query_focus.shape} key_focus:{key_focus.shape} value_focus:{value_focus.shape}')
+        print(f'just_before_use_cache->query:{query.shape}  key:{key.shape} value:{value.shape}')
         if use_cache is True:
             present = (key, value)
         else:
@@ -496,12 +492,12 @@ class APTAttention(GPT2Attention):
             attn_output, attn_weights = self._attn(query, key, value, attention_mask, head_mask,alibi_bias=alibi_bias)
         elif self.gqa_attn:
             attn_output, attn_weights = self._gqa_attn(query, key, value, attention_mask,alibi_bias=alibi_bias)
-        # elif self.pairwise_attn:
-            # attn_output, attn_weights = self._pairwise_attn(query, key, value, attention_mask, head_mask,alibi_bias=alibi_bias)
+       
         attn_output = self._merge_heads(attn_output, self.num_heads, self.head_dim)
+        print(f'attn_output:{attn_output}')
         attn_output = self.c_proj(attn_output)
         attn_output = self.resid_dropout(attn_output)
-
+        print(f'attn_output:{attn_output}')
         outputs = (attn_output, present)
         if output_attentions:
             outputs += (attn_weights,)
@@ -632,19 +628,17 @@ class APTModel(GPT2PreTrainedModel):
             self.alibi = None
         elif self.position_embedding=="alibi":
             maxpos = config.max_sequence_length
-            attn_heads = config.n_head
-            alibi1 = create_alibi_tensor(attn_heads,maxpos)
             if self.position_embedding_type == 'separate_condition_and_focus_position_embeddings':
                 alibi_cond = build_alibi_bias(
                     n_heads=attn_heads,
                     seq_len= config.max_cond_sequence_length,
-                    full = False, # full = not causal so if we want causal it needs to be false
+                    full = False, # full = not causal so if we want causal full needs to be false
                     alibi_bias_max= 8,
                 )
                 alibi_focus = build_alibi_bias(
                 n_heads=attn_heads,
                 seq_len= config.max_focus_sequence_length,
-                full = False, #full = not causal so if we want causal it needs to be false
+                full = False, #full = not causal so if we want causal full needs to be false
                 alibi_bias_max= 8,
                 )
                 #if full is false otherwise we will contatenate at dim=2 sinnce alibi is square matrix
@@ -713,9 +707,6 @@ class APTModel(GPT2PreTrainedModel):
             raise ValueError("You have to specify either input_ids or inputs_embeds")
         device = input_ids.device if input_ids is not None else inputs_embeds.device
         
-
-        print('sentinel_indices###')
-        print(sentinel_indices)
         if token_type_ids is not None:
             token_type_ids = token_type_ids.view(-1, input_shape[-1])
         if position_ids is not None:
@@ -727,15 +718,9 @@ class APTModel(GPT2PreTrainedModel):
         else:
             past_length = past_key_values[0][0].size(-2)
         if position_ids is None:
-            # print(f'past_key_values:{past_key_values}')
             if self.position_embedding_type == 'separate_condition_and_focus_position_embeddings':
-                position_ids,cond_mask,focus_mask = create_paired_position_ids(input_ids, sentinel_indices)
+                position_ids= create_paired_position_ids(input_ids, sentinel_indices)
                 position_ids = position_ids.unsqueeze(0).view(-1, input_shape[-1])
-                # position_ids_cond = position_ids_cond.unsqueeze(0).view(-1, input_shape[-1])
-                # position_ids_focus = position_ids_focus.unsqueeze(0).view(-1, input_shape[-1])
-                # print(f'paired_position_ids:{position_ids}')
-                # print(f'paired_position_ids_cond:{position_ids_cond}')
-                # print(f'paired_position_ids_focus:{position_ids_focus}')
             else:
                 position_ids = torch.arange(past_length, input_shape[-1] + past_length, dtype=torch.long, device=device)
                 position_ids = position_ids.unsqueeze(0).view(-1, input_shape[-1])
@@ -783,31 +768,15 @@ class APTModel(GPT2PreTrainedModel):
         if self.position_embedding=="learned":
             
             if self.position_embedding_type == 'separate_condition_and_focus_position_embeddings':
-                # pc = position_ids_cond[position_ids_cond != 0]
-                # pf = position_ids_focus[position_ids_focus != 0]
-                # print(f'input_embeds:{inputs_embeds.shape} {inputs_embeds}')
-                # print(f'paired_position_ids_cond:{pc.shape} {pc}')
-                # print(f'paired_position_ids_focus:{pf.shape} {pf}')
-
-                # position_embeds_cond = self.wpe_conditioning(position_ids_cond)
-                # position_embeds_focus = self.wpe(position_ids_focus)
-                # position_embeds = self.wpe(position_ids)
-                position_embeds,cond_mask,focus_mask = get_paired_position_embedding(embedding = self.wpe_conditioning,embed_dim= self.embed_dim, position_ids = position_ids, sentinel_indices = sentinel_indices)
-                # position_embeds_focus = get_paired_position_embedding(embedding = self.wpe, embed_dim= self.embed_dim,position_ids = position_ids, sentinel_indices = sentinel_indices, sequence_type = 'focus')
-                # position_embeds = position_embeds_cond + position_embeds_focus # position_embeds_cond has non zero values till sentinel_index while position_embeds_focuas had non zero values after the index hence we can sume them up
-                
+                position_embeds = get_paired_position_embedding(embedding=self.wpe,embedding_condition = self.wpe_conditioning,embed_dim= self.embed_dim, position_ids = position_ids, sentinel_indices = sentinel_indices)
                 hidden_states = inputs_embeds + position_embeds
-
-                # hidden_states_cond,hidden_states_focus = get_paired_hidden_states(hidden_states=hidden_states,cond_mask = cond_mask, focus_mask = focus_mask)
             else:
                 position_embeds = self.wpe(position_ids)
                 hidden_states = inputs_embeds + position_embeds
             print(f'input_ids:',input_ids.shape)
             print(f'position_ids:',position_ids.shape,)
             print(f'hidden_states:',hidden_states.shape)
-            # print(f'position_embeds:',position_embeds.shape,position_embeds)
-            # print(f'input_embeds:',inputs_embeds.shape,inputs_embeds)
-            # print(f'position_embeds:',position_embeds.shape,position_embeds)
+            
 
         elif self.position_embedding in ['rope','rerope','linear_rope_scaling','dynamic_rope_scaling','alibi']:
             hidden_states = inputs_embeds
@@ -1009,7 +978,7 @@ class APTLMHeadModel(GPT2PreTrainedModel):
         if not return_dict:
             output = (lm_logits,) + transformer_outputs[1:]
             return ((loss,) + output) if loss is not None else output
-
+        print(f'loss:{loss}')
         return CausalLMOutputWithCrossAttentions(
             loss=loss,
             logits=lm_logits,

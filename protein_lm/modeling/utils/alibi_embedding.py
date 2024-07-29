@@ -41,6 +41,10 @@ def build_alibi_bias(
     device: Optional[torch.device] = None,
     dtype: Optional[torch.dtype] = None,
 ) -> torch.Tensor:
+    """
+    Function to compute the alibi Code has been adapted from:
+    https://github.com/mosaicml/llm-foundry/blob/main/llmfoundry/models/layers/attention.py
+    """
     def gen_slopes(
         n_heads: int,
         alibi_bias_max: int = 8,
