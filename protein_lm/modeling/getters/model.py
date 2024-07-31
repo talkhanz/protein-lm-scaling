@@ -13,6 +13,7 @@ class NNModelConfig(BaseModel):
     # pydantic namespace warnings
     nn_model_type: Literal["APT"]
     nn_model_config_args: Dict
+    
     pretrained_checkpoint: Optional[str]
 
 

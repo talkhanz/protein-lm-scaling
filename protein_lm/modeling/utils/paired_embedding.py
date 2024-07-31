@@ -97,6 +97,25 @@ def reorder_matrix(A, sentinel_indices,decoding_orders=[]):
             result[i] = reorder_mo(A,sentinel_indices,N,i)
     return result
 
+def split_matrix(matrix=None, sentinel_indices = None):
+    rows = torch.arange(matrix.shape[0]).unsqueeze(1)
+    cols = torch.arange(matrix.shape[1])
+    before_mask = cols < sentinel_indices.unsqueeze(1)
+
+    # Select elements before the index
+    before_split = matrix[before_mask].split(sentinel_indices.tolist())
+
+    # Create a mask for selecting elements after the index
+    after_mask = cols >= sentinel_indices.unsqueeze(1)
+
+    # Select elements after the index
+    after_split = matrix[after_mask].split((matrix.shape[1] - sentinel_indices).tolist())
+
+    # Convert the lists of tensors back to tensors if needed
+    before_split = torch.nn.utils.rnn.pad_sequence(before_split, batch_first=True, padding_value=0)
+    after_split = torch.nn.utils.rnn.pad_sequence(after_split, batch_first=True, padding_value=0)
+    return before_split,after_split
+
 def get_paired_hidden_states(hidden_states=None,sentinel_indices=None):
     """
     separates condition and focus hidden_states  from the complete hidden_states vector

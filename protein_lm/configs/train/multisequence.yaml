@@ -14,15 +14,15 @@ dataset:
   cond_sequence_column_names: #the order needs to uniref30,50,90 and then alphafold columns as below
   - "UniRef30_clust_str" 
   - "UniRef50_clust_str"
+  - "UniRef70_clust_str"
   - "UniRef90_clust_str"
   - "Alphafold_clust_str"
   focus_sequence_column_name: "U100"  
-  max_cond_sequence_length: 64
-  max_focus_sequence_length: 64
-  max_sequence_length: 128 # has to be greater than or equal sum(max_cond_sequence_length,max_focus_sequence_length)
-  cond_sequence_mask_fraction: 0.25
-  focus_sequence_mask_fraction: 0.0
+  max_cond_sequence_length: 40
+  max_focus_sequence_length: 40
+  max_sequence_length: 80 # has to be greater than or equal sum(max_cond_sequence_length,max_focus_sequence_length)
   tokenization_strategy: "otf" #otf = on the fly, tokenization will happen when a sample is returned from the MultiSequenceIterableClass
+  
 
 
 
@@ -56,6 +56,23 @@ wandb:
 # corresponds to TokenizerConfig
 tokenizer:
   tokenizer_type: "APT"
+  mask_type: "random_multi_span"
+  sequence_mask_fraction:
+    condition: 
+      uniref30: 0.2
+      uniref50: 0.2
+      uniref70: 0.2
+      uniref90: 0.2
+      uniref100: 0.2
+      struct: 0.2
+    focus: 
+      uniref30: 0.0
+      uniref50: 0.0
+      uniref70: 0.0
+      uniref90: 0.0
+      uniref100: 0.0
+      struct: 0.0
+  
 
 # corresponds to NNModelConfig
 model:
@@ -65,9 +82,9 @@ model:
     position_embedding_type: 'separate_condition_and_focus_position_embeddings'
     rope_scaling_factor: 1.0
     rope_theta: 10000
-    max_cond_sequence_length: 64
-    max_focus_sequence_length: 64
-    max_sequence_length: 128 # has to be greater than or equal sum(max_cond_sequence_length,max_focus_sequence_length)
+    max_cond_sequence_length: 40
+    max_focus_sequence_length: 40
+    max_sequence_length: 80 # has to be greater than or equal sum(max_cond_sequence_length,max_focus_sequence_length)
     attn_type: 'standard'
   pretrained_checkpoint: null
 

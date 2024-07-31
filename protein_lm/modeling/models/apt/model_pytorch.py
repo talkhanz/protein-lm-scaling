@@ -316,7 +316,7 @@ class APTAttention(GPT2Attention):
             if self.position_embedding_type == 'separate_condition_and_focus_position_embeddings':
                 hidden_states_cond,hidden_states_focus = get_paired_hidden_states(hidden_states=hidden_states,sentinel_indices=sentinel_indices)
                 encoder_hidden_states_cond,encoder_hidden_states_focus = get_paired_hidden_states(hidden_states=encoder_hidden_states,sentinel_indices=sentinel_indices)
-                
+                print(f'hidden_states_cond.shape[1]:{hidden_states_cond.shape[1]}')
                 if hidden_states_cond.shape[1]:
                     query_cond = self.q_attn(hidden_states_cond)
                     key_cond, value_cond = self.c_attn(encoder_hidden_states_cond).split(self.split_size, dim=2)
@@ -333,6 +333,7 @@ class APTAttention(GPT2Attention):
         else:
             if self.position_embedding_type == 'separate_condition_and_focus_position_embeddings':
                 hidden_states_cond,hidden_states_focus = get_paired_hidden_states(hidden_states=hidden_states,sentinel_indices=sentinel_indices)
+                print(f'hidden_states_cond.shape[1]:{hidden_states_cond.shape[1]}')
                 if hidden_states_cond.shape[1]:
                     query_cond, key_cond, value_cond = self.c_attn(hidden_states_cond).split(self.split_size, dim=2)
                     has_query_cond = True
@@ -612,6 +613,7 @@ class APTBlock(nn.Module):
 """The bare APT Model transformer outputting raw hidden-states without any specific head on top."""
 class APTModel(GPT2PreTrainedModel):
     def __init__(self, config):
+        print(f'initializing model')
         super().__init__(config)
         self.pad_id = config.pad_id
         self.embed_dim = config.hidden_size

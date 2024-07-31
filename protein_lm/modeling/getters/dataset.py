@@ -5,7 +5,7 @@ from datasets.dataset_dict import DatasetDict,IterableDatasetDict
 from pydantic import BaseModel
 
 from protein_lm.dataset.cluster_dataset import ClusterDataset
-from protein_lm.dataset.multisequence_dataset import MutliSequenceIterableDataset,MutliSequenceIterableDataset2
+from protein_lm.dataset.multisequence_dataset import MultiSequenceIterableDataset
 
 
 import torch
@@ -208,52 +208,55 @@ def get_colabfold_dataset(config:DatasetConfig) -> Dataset:
 def get_multisequence_dataset(config:DatasetConfig,tokenizer) -> Dataset:
     exception_msg = f"sum of maximum condition sequence length {config.max_cond_sequence_length} and maximum focus sequence length {config.max_focus_sequence_length} is greater than maximum_sequence_length:{config.max_sequence_length}"
     assert config.max_cond_sequence_length + config.max_focus_sequence_length <= config.max_sequence_length,exception_msg
-    torch_ds = MutliSequenceIterableDataset(
+    torch_ds = MultiSequenceIterableDataset(
             dataset_path=config.dataset_loc, 
             cluster_table_path = "",
             index_column = config.index_column_name,
             focus_sequence_column = config.focus_sequence_column_name,
-            condition_sequence_columns = {"uniref30":config.cond_sequence_column_names[0],"uniref50":config.cond_sequence_column_names[1],"uniref90":config.cond_sequence_column_names[2],"struct":config.cond_sequence_column_names[3]}, 
+            condition_sequence_columns = {"uniref30":config.cond_sequence_column_names[0],"uniref50":config.cond_sequence_column_names[1],"uniref70":config.cond_sequence_column_names[2],"uniref90":config.cond_sequence_column_names[3],"struct":config.cond_sequence_column_names[4]}, 
             cond_sequence_length= config.max_cond_sequence_length,
             focus_sequence_length = config.max_focus_sequence_length,
+            max_sequence_length = config.max_sequence_length,
             seed=config.split_seed,
             pair_prob= 0.7, #probably a sample will have a pair of sequences
-            cluster_prob ={'uniref30': 0.25,'uniref50': 0.25,'uniref90':0.25,'struct': 0.25}, #if a pair is selected, probably of condition sequence per cluster
-            decoding_order_prob = {'lr': 0.25,'rl': 0.25, 'fim': 0.25,'mo': 0.25}, #independant of paired sequence or singleton
+            cluster_prob ={'uniref30': 0.2,'uniref50':0.2,'uniref70': 0.2,'uniref90': 0.2,'struct': 0.2}, #if a pair is selected, probably of condition sequence per cluster
+            decoding_order_prob = {'lr': 1,'rl': 0, 'fim': 0,'mo': 0}, #independant of paired sequence or singleton
             separator_token=",", #the token which separates the list of sequences in the condition sequence columns,
             tokenization_strategy = config.tokenization_strategy,
             tokenizer = tokenizer,
             )
 
-    torch_test_ds = MutliSequenceIterableDataset(
+    torch_test_ds = MultiSequenceIterableDataset(
             dataset_path=config.test_dataset_loc, 
             cluster_table_path = "",
             index_column = config.index_column_name,
             focus_sequence_column = config.focus_sequence_column_name,
-            condition_sequence_columns = {"uniref30":config.cond_sequence_column_names[0],"uniref50":config.cond_sequence_column_names[1],"uniref90":config.cond_sequence_column_names[2],"struct":config.cond_sequence_column_names[3]}, 
+            condition_sequence_columns = {"uniref30":config.cond_sequence_column_names[0],"uniref50":config.cond_sequence_column_names[1],"uniref70":config.cond_sequence_column_names[2],"uniref90":config.cond_sequence_column_names[3],"struct":config.cond_sequence_column_names[4]}, 
             cond_sequence_length= config.max_cond_sequence_length,
             focus_sequence_length = config.max_focus_sequence_length,
+            max_sequence_length = config.max_sequence_length,
             seed=config.split_seed,
             pair_prob= 0.7, #probably a sample will have a pair of sequences
-            cluster_prob ={'uniref30': 0.25,'uniref50': 0.25,'uniref90':0.25,'struct': 0.25}, #if a pair is selected, probably of condition sequence per cluster
-            decoding_order_prob = {'lr': 0.25,'rl': 0.25, 'fim': 0.25,'mo': 0.25}, #independant of paired sequence or singleton
+            cluster_prob ={'uniref30': 0.2,'uniref50':0.2,'uniref70': 0.2,'uniref90': 0.2,'struct': 0.2}, #if a pair is selected, probably of condition sequence per cluster
+            decoding_order_prob = {'lr': 1,'rl': 0, 'fim': 0,'mo': 0}, #independant of paired sequence or singleton
             separator_token=",", #the token which separates the list of sequences in the condition sequence columns
             tokenization_strategy = config.tokenization_strategy,
             tokenizer = tokenizer,
             )
     
-    torch_val_ds = MutliSequenceIterableDataset(
+    torch_val_ds = MultiSequenceIterableDataset(
             dataset_path=config.val_dataset_loc, 
             cluster_table_path = "",
             index_column = config.index_column_name,
             focus_sequence_column = config.focus_sequence_column_name,
-            condition_sequence_columns = {"uniref30":config.cond_sequence_column_names[0],"uniref50":config.cond_sequence_column_names[1],"uniref90":config.cond_sequence_column_names[2],"struct":config.cond_sequence_column_names[3]}, 
+            condition_sequence_columns = {"uniref30":config.cond_sequence_column_names[0],"uniref50":config.cond_sequence_column_names[1],"uniref70":config.cond_sequence_column_names[2],"uniref90":config.cond_sequence_column_names[3],"struct":config.cond_sequence_column_names[4]}, 
             cond_sequence_length= config.max_cond_sequence_length,
             focus_sequence_length = config.max_focus_sequence_length,
+            max_sequence_length = config.max_sequence_length,
             seed=config.split_seed,
             pair_prob= 0.7, #probably a sample will have a pair of sequences
-            cluster_prob ={'uniref30': 0.25,'uniref50': 0.25,'uniref90':0.25,'struct': 0.25}, #if a pair is selected, probably of condition sequence per cluster
-            decoding_order_prob = {'lr': 0.25,'rl': 0.25, 'fim': 0.25,'mo': 0.25}, #independant of paired sequence or singleton
+            cluster_prob ={'uniref30': 0.2,'uniref50':0.2,'uniref70': 0.2,'uniref90': 0.2,'struct': 0.2}, #if a pair is selected, probably of condition sequence per cluster
+            decoding_order_prob = {'lr': 1,'rl': 0, 'fim': 0,'mo': 0}, #independant of paired sequence or singleton
             separator_token=",", #the token which separates the list of sequences in the condition sequence columns
             tokenization_strategy = config.tokenization_strategy,
             tokenizer = tokenizer,
